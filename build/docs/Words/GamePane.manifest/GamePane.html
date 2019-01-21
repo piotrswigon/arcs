@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- fixme -->
+  <link rel="shortcut icon" href="../configuration/logo_64.png">
+  <link rel="stylesheet" href="something.css">
+    <title>GamePane</title>
+</head>
+<body>
+  <h2>GamePane</h2>
+  <pre>particle GamePane in &#x27;./particles/Words/source/GamePane.js&#x27;
+  in Person {Text id, Text name, Text occasion, Text date} person
+  inout Board {Text gameId, Text letters, Number shuffleAvailableCount, Number state} board
+  inout Move {Text gameId, Text coordinates} move
+  inout Stats {Text gameId, Number score, Number moveCount, Number startstamp, Number endstamp, Text longestWord, Number longestWordScore, Text highestScoringWord, Number highestScoringWordScore, Number createdTimestamp, Text message, Text author} stats
+  modality dom
+  consume root
+  description &#x60;play Words&#x60;</pre>
+</body>
+</html>
+

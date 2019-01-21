@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- fixme -->
+  <link rel="shortcut icon" href="../configuration/logo_64.png">
+  <link rel="stylesheet" href="something.css">
+    <title>TVMazeDemoShell</title>
+</head>
+<body>
+  <h2>TVMazeDemoShell</h2>
+  <pre>particle TVMazeDemoShell in &#x27;./particles/TVMaze/source/TVMazeDemoShell.js&#x27;
+  in [TVMazeShow {Text showid, Text name, Text description, Text image, Text network, Text day, Text time, Text suggestion, Text extra, Boolean favorite, Boolean delete}] recentShows
+  inout TVMazeShow {Text showid, Text name, Text description, Text image, Text network, Text day, Text time, Text suggestion, Text extra, Boolean favorite, Boolean delete} selected
+  in User {Text id, Text name, Object location} user
+  in [TVMazeShow {Text showid, Text name, Text description, Text image, Text network, Text day, Text time, Text suggestion, Text extra, Boolean favorite, Boolean delete}] boxedShows
+  in [TVMazeShow {Text showid, Text name, Text description, Text image, Text network, Text day, Text time, Text suggestion, Text extra, Boolean favorite, Boolean delete}] foundShows
+  in [User {Text id, Text name, Object location}] friends
+  in [UserName {Text userName}] boxedUserNames
+  inout [User {Text id, Text name, Object location}] watchers
+  out Text {Text text} watcherText
+  out [Description {Text key, Text value}] descriptions
+  modality dom
+  consume root
+    provide shows
+    provide recommended
+    provide searchbar
+    provide search
+  description &#x60;TV shows&#x60;</pre>
+</body>
+</html>
+

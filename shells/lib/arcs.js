@@ -20,6 +20,7 @@ const {
   firebase,
   logFactory,
   Xen,
+  DevtoolsConnection
 } = g.__ArcsLib__;
 
 // TODO(sjmiles): populated dynamically via env-base.js
@@ -45,5 +46,6 @@ export {
   firebase,
   logFactory,
   Xen,
-  Env
+  Env,
+  DevtoolsConnection
 };

@@ -1,0 +1,1 @@
+{"version":3,"file":"capturing-slot-context.js","sourceRoot":"","sources":["../../src/runtime/capturing-slot-context.ts"],"names":[],"mappings":"AAAA;;;;;;;;GAQG;AAGH,OAAO,EAAC,mBAAmB,EAAC,MAAM,mBAAmB,CAAC;AAGtD,MAAM,OAAO,oBAAqB,SAAQ,mBAAmB;IAC3D,sEAAsE;IACtE,YAAY,EAAU,EAAE,oBAAkC;QACxD,KAAK,CAAC,EAAE,EAAE,oBAAoB,CAAC,CAAC;IAClC,CAAC;CACF"}

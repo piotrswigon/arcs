@@ -8,12 +8,22 @@
   const msgQueue = [];
   let windowForEvents = undefined;
 
-  // Use the extension API if we're in devtools and having a window to inspect.
-  // Otherwise use WebSocket. In later case we might be in devtools but running
-  // against NodeJS, but in such case there's no window to inspect.
-  const sendMessage = (chrome.devtools && chrome.devtools.inspectedWindow.tabId)
-      ? connectViaExtensionApi()
-      : connectViaWebSocket();
+  const sendMessage = function chooseConnection() {
+    const peerId = new URLSearchParams(window.location.search).get('remote-webshell');
+    if (peerId) {
+      // what if we're in devtools and debugging a device.
+      return connectViaWebRTC(peerId);
+    } else if (chrome.devtools && chrome.devtools.inspectedWindow.tabId) {
+      // Use the extension API if we're in devtools and having a window to inspect.
+      return connectViaExtensionApi();
+    } else {
+      // Otherwise use WebSocket. We may still be in devtools, but if we inspect node ....
+      // fix comments.
+      // In later case we might be in devtools but running
+      // against NodeJS, but in such case there's no window to inspect.
+      return connectViaWebSocket();
+    }
+  }();
 
   if (chrome && chrome.devtools) {
     // Add the panel for devtools, and flush the events to it once it's shown.
@@ -85,6 +95,35 @@
       };
     })();
     return msg => ws.send(JSON.stringify(msg));
+  }
+
+  function connectViaWebRTC(peerId) {
+    const peer = new Peer(peerId);
+    let connection = null;
+
+    console.log('Waiting for WebShell to connect...');
+    peer.on('connection', conn => {
+      console.log('New Connection!');
+
+      conn.on('open', () => {
+        connection = conn;
+        conn.send('init');
+      });
+      
+      conn.on('data', data => {
+        queueOrFire(JSON.parse(data));
+      });
+
+      conn.on('error', x => console.log(x));
+    });
+    
+    return msg => {
+      if (!connection) {
+        console.log('too early for', msg);
+      } else {
+        connection.send(JSON.stringify(msg));
+      }
+    };
   }
 
   function queueOrFire(msg) {

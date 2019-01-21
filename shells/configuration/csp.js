@@ -40,6 +40,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         https://xenonjs.com
         https://*.tvmaze.com
         https://media.w3.org
+        https://cdnjs.cloudflare.com
         ;
     font-src
         'self'

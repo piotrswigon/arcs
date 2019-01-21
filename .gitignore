@@ -1,5 +1,4 @@
 **/node_modules
-**/dist
 **/*.swp
 **/*.swo
 **/.DS_Store
@@ -15,15 +14,12 @@ manifest-railroad.html
 **/*.code-workspace
 shell/build
 shell/test/errorShots
-shells/env/build
 shells/test/errorShots
-devtools/deps
 enclave/bazel-*
 enclave/sdk
 enclave/toolchains
 enclave/host/storage/db.img
 enclave/host/storage/key
-build
 .vscode
 devtools/build
 server/log.txt
