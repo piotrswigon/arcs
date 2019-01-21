@@ -24,8 +24,8 @@ export class DevtoolsChannel extends AbstractDevtoolsChannel {
       document.addEventListener('arcs-debug-in', e => this._handleMessage(e.detail));
     } else {
       console.log(`Connecting to Remote Arcs Explorer '${peerName}'`);
-      // should use reliable true. serialization json? metadata?
-      const conn = new Peer().connect(peerName, {reliable: true});
+      const peer = new Peer();
+      const conn = peer.connect(peerName, {reliable: true});
       conn.on('open', () => {
         console.log('Connection opened!');
         this.conn = conn;
