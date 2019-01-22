@@ -11,18 +11,23 @@ import { Arc } from '../arc.js';
 import { PlanningResult } from './planning-result.js';
 import { Suggestion } from './suggestion.js';
 import { SuggestionComposer } from '../suggestion-composer.js';
+import { ArcDevtoolsChannel } from '../debug/abstract-devtools-channel.js';
 export declare class PlanConsumer {
     arc: Arc;
     result: PlanningResult;
-    suggestFilter: {};
+    suggestFilter: {
+        showAll: boolean;
+        search?: any;
+    };
     private suggestionsChangeCallbacks;
     private visibleSuggestionsChangeCallbacks;
     suggestionComposer: SuggestionComposer | null;
     currentSuggestions: Suggestion[];
+    devtoolsChannel: ArcDevtoolsChannel;
     constructor(arc: Arc, result: PlanningResult);
     registerSuggestionsChangedCallback(callback: any): void;
     registerVisibleSuggestionsChangedCallback(callback: any): void;
-    setSuggestFilter(showAll: any, search: any): void;
+    setSuggestFilter(showAll: boolean, search?: string): void;
     onSuggestionsChanged(): void;
     getCurrentSuggestions(): Suggestion[];
     dispose(): void;

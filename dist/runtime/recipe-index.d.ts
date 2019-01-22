@@ -16,8 +16,10 @@ export declare class RecipeIndex {
     ready: any;
     private _recipes;
     private _isReady;
-    constructor(arc: Arc);
-    static create(arc: Arc): RecipeIndex;
+    constructor(arc: Arc, { reportGenerations }?: {
+        reportGenerations?: boolean;
+    });
+    static create(arc: Arc, options?: {}): RecipeIndex;
     readonly recipes: Recipe[];
     ensureReady(): void;
     /**

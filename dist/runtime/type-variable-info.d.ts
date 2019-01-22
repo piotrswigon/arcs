@@ -1,10 +1,10 @@
 import { Type } from './type.js';
 export declare class TypeVariableInfo {
     name: string;
-    _canWriteSuperset: Type | null;
-    _canReadSubset: Type | null;
-    _resolution: Type | null;
-    constructor(name: string, canWriteSuperset: Type | null, canReadSubset: Type | null);
+    _canWriteSuperset?: Type;
+    _canReadSubset?: Type;
+    _resolution?: Type;
+    constructor(name: string, canWriteSuperset?: Type, canReadSubset?: Type);
     /**
      * Merge both the read subset (upper bound) and write superset (lower bound) constraints
      * of two variables together. Use this when two separate type variables need to resolve

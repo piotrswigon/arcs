@@ -1,5 +1,5 @@
 (function() {
-if (new URLSearchParams(window.location.search).has('remote-devtools')) return;
+if (new URLSearchParams(window.location.search).has('remote-explore')) return;
 
 const startupTime = Date.now();
 

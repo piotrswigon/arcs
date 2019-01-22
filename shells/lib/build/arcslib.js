@@ -7048,36 +7048,71 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
   constructor() {
     super();
 
-    const peerName = new URLSearchParams(window.location.search).get('remote-devtools');
-    this.remoteDebugging = !!peerName;
+    this.remoteExplore = new URLSearchParams(window.location.search).has('remote-explore');
 
-    if (!this.remoteDebugging) {
+    if (!this.remoteExplore) {
       document.addEventListener('arcs-debug-in', e => this._handleMessage(e.detail));
     } else {
-      console.log(`Connecting to Remote Arcs Explorer '${peerName}'`);
-      const peer = new Peer();
-      const conn = peer.connect(peerName, {reliable: true});
-      conn.on('open', () => {
-        console.log('Connection opened!');
-        this.conn = conn;
-        conn.on('data', msg => {
-          if (msg === 'init') { // is 'init' needed?
-            _devtools_shared_devtools_broker_js__WEBPACK_IMPORTED_MODULE_1__["DevtoolsBroker"].markConnected();
-          } else {
-            this._handleMessage(JSON.parse(msg));
-          }
+      console.log(`Connecting to Remote Arcs Explorer`);
+
+      const p = new SimplePeer({initiator: true, trickle: false, objectMode: true});
+
+      p.on('signal', (data) => {
+        const key = btoa(JSON.stringify(data));
+        console.log('SIGNAL', data, key);
+        document.querySelector('body').innerHTML = `
+          <a href="http://localhost:5007/devtools/?remote-key=${key}" target="_blank">Remote Explorer</a>
+          <form>
+            <textarea id="incoming" placeholder="Signal..."></textarea>
+            <button type="submit">submit</button>
+          </form>
+        `;
+        document.querySelector('form').addEventListener('submit', e => {
+          e.preventDefault();
+          p.signal(JSON.parse(atob(document.querySelector('#incoming').value)));
         });
       });
 
-      conn.on('error', x => console.log(x));
+      p.on('error', (err) => { console.log('error', err); });
+
+      p.on('connect', () => {
+        console.log('CONNECT');
+      });
+      
+      p.on('data', (msg) => {
+        console.log('received!', msg);
+        if (msg === 'init') {
+          this.p = p;
+          _devtools_shared_devtools_broker_js__WEBPACK_IMPORTED_MODULE_1__["DevtoolsBroker"].markConnected();
+        } else {
+          this._handleMessage(JSON.parse(msg));
+        }
+      });
+
+      // const peer = new Peer();
+      // const conn = peer.connect(peerName, {reliable: true});
+      // conn.on('open', () => {
+      //   console.log('Connection opened!');
+      //   this.conn = conn;
+      //   conn.on('data', msg => {
+      //     if (msg === 'init') { // is 'init' needed?
+      //       DevtoolsBroker.markConnected();
+      //     } else {
+      //       this._handleMessage(JSON.parse(msg));
+      //     }
+      //   });
+      // });
+
+      // conn.on('error', x => console.log(x));
     }
   }
 
   _flush(messages) {
-    if (this.remoteDebugging) {
-      if (this.conn) {
-        this.conn.send(JSON.stringify(messages));
+    if (this.remoteExplore) {
+      if (this.p) {
+        this.p.send(JSON.stringify(messages));
       } else {
+        debugger;
         throw new Error(); // maybe?
       }
     } else {
@@ -85392,24 +85427,23 @@ class ArcStoresFetcher {
     }
     async _digestStores(stores) {
         const result = [];
-        for (const [store, tags] of stores) {
-            let value = `(don't know how to dereference)`;
-            if (store.toList) {
-                value = await store.toList();
-            }
-            else if (store.get) {
-                value = await store.get();
-            }
-            result.push({
-                name: store.name,
-                tags: tags ? [...tags] : [],
-                id: store.id,
-                storage: store.storageKey,
-                type: store.type,
-                description: store.description,
-                value
-            });
-        }
+        // for (const [store, tags] of stores) {
+        //   let value = `(don't know how to dereference)`;
+        //   if (store.toList) {
+        //     value = await store.toList();
+        //   } else if (store.get) {
+        //     value = await store.get();
+        //   }
+        //   result.push({
+        //     name: store.name,
+        //     tags: tags ? [...tags] : [],
+        //     id: store.id,
+        //     storage: store.storageKey,
+        //     type: store.type,
+        //     description: store.description,
+        //     value
+        //   });
+        // }
         return result;
     }
 }

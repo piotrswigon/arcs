@@ -13,7 +13,8 @@ import { PlanProducer } from './plan-producer.js';
 import { PlanningResult } from './planning-result.js';
 import { Recipe } from '../recipe/recipe.js';
 import { ReplanQueue } from './replan-queue.js';
-import { StorageProviderBase } from "../storage/storage-provider-base.js";
+import { KeyBase } from "../storage/key-base.js";
+import { VariableStorageProvider } from "../storage/storage-provider-base.js";
 export declare type PlanificatorOptions = {
     userid: string;
     storageKeyBase?: string;
@@ -30,10 +31,10 @@ export declare class Planificator {
     replanQueue?: ReplanQueue;
     dataChangeCallback: () => void;
     search: string | null;
-    searchStore: StorageProviderBase;
+    searchStore: VariableStorageProvider;
     arcCallback: ({}: {}) => void;
     lastActivatedPlan: Recipe | null;
-    constructor(arc: Arc, userid: string, store: StorageProviderBase, searchStore: StorageProviderBase, onlyConsumer: boolean, debug: boolean);
+    constructor(arc: Arc, userid: string, store: VariableStorageProvider, searchStore: VariableStorageProvider, onlyConsumer?: boolean, debug?: boolean);
     requestPlanning(options?: {}): Promise<void>;
     readonly consumerOnly: boolean;
     loadSuggestions(): Promise<boolean>;
@@ -48,8 +49,8 @@ export declare class Planificator {
     private _onPlanInstantiated;
     private _listenToArcStores;
     private _unlistenToArcStores;
-    private static _constructSuggestionKey;
-    private static _constructSearchKey;
+    static constructSuggestionKey(arc: Arc, userid: string, storageKeyBase?: string): KeyBase;
+    static constructSearchKey(arc: Arc, userid: string): KeyBase;
     private static _initSuggestStore;
     private static _initSearchStore;
     private static _initStore;

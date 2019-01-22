@@ -10,6 +10,7 @@ window.debugLevel = Xen.Debug.level = logLevel;
 const body = document.getElementsByTagName('body')[0];
 
 function startUp() {
+  body.innerHTML = '';
   body.appendChild(document.createElement('web-shell'));
   // configure root path
   Object.assign(document.querySelector('web-shell'), {
@@ -17,13 +18,9 @@ function startUp() {
   });  
 }
 
-if (params.has('remote-devtools')) {
-  body.innerHTML = `<pre>Waiting for Remote Arcs Explorer with peer-id "${params.get('remote-devtools')}"...</pre>`;
+if (params.has('remote-explore')) {
   DevtoolsConnection.ensure();
-  DevtoolsConnection.onceConnected.then(() => {
-    body.innerHTML = '';
-    startUp();
-  });
+  DevtoolsConnection.onceConnected.then(startUp);
 } else {
   startUp();
 }

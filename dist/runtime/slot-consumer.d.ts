@@ -8,47 +8,56 @@
  * http://polymer.github.io/PATENTS.txt
  */
 import { Arc } from './arc.js';
-import { SlotContext } from './slot-context.js';
+import { Description } from './description.js';
+import { SlotContext, ProvidedSlotContext, HostedSlotContext } from './slot-context.js';
 import { SlotConnection } from './recipe/slot-connection.js';
-import { HostedSlotConsumer } from './hosted-slot-consumer.js';
 export declare class SlotConsumer {
     _consumeConn?: SlotConnection;
     slotContext: SlotContext;
-    providedSlotContexts: SlotContext[];
+    readonly directlyProvidedSlotContexts: ProvidedSlotContext[];
+    readonly hostedSlotContexts: HostedSlotContext[];
     startRenderCallback: ({}: {}) => void;
     stopRenderCallback: ({}: {}) => void;
     eventHandler: ({}: {}) => void;
     readonly containerKind?: string;
     private _renderingBySubId;
     private innerContainerBySlotId;
-    constructor(consumeConn?: SlotConnection, containerKind?: string);
+    readonly arc: Arc;
+    constructor(arc: Arc, consumeConn?: SlotConnection, containerKind?: string);
     readonly consumeConn: SlotConnection;
-    getRendering(subId: any): {
+    getRendering(subId?: any): {
         container?: {};
+        model?: any;
+        templateName?: string;
     };
     readonly renderings: [string, {
         container?: {};
+        model?: any;
+        templateName?: string;
     }][];
     addRenderingBySubId(subId: string | undefined, rendering: any): void;
+    addHostedSlotContexts(context: HostedSlotContext): void;
+    readonly allProvidedSlotContexts: ProvidedSlotContext[];
+    findProvidedContext(predicate: (_: ProvidedSlotContext) => boolean): ProvidedSlotContext;
+    private generateProvidedContexts;
     onContainerUpdate(newContainer: any, originalContainer: any): void;
-    createProvidedContexts(): SlotContext[];
+    createProvidedContexts(): ProvidedSlotContext[];
     updateProvidedContexts(): void;
     startRender(): void;
     stopRender(): void;
-    setContent(content: any, handler: any, arc?: Arc): Promise<void>;
-    populateHandleDescriptions(arc: any): Promise<{}>;
+    setContent(content: any, handler: any, description?: Description): void;
+    populateHandleDescriptions(description: Description): {};
     getInnerContainer(slotId: any): any;
     _initInnerSlotContainer(slotId: any, subId: any, container: any): void;
     _clearInnerSlotContainers(subIds: any): void;
     isSameContainer(container: any, contextContainer: any): boolean;
-    readonly hostedConsumers: HostedSlotConsumer[];
-    constructRenderRequest(hostedSlotConsumer?: any): string[];
+    constructRenderRequest(): string[];
     dispose(): void;
     createNewContainer(contextContainer: any, subId: any): {};
     deleteContainer(container: any): void;
     clearContainer(rendering: any): void;
     setContainerContent(rendering: any, content: any, subId: any): void;
     formatContent(content: any, subId: any): object;
-    formatHostedContent(hostedSlot: any, content: any): {};
+    formatHostedContent(content: any): {};
     static clear(container: any): void;
 }

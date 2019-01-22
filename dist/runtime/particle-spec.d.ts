@@ -7,9 +7,9 @@
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-import { Type, TypeLiteral, InterfaceType } from './type.js';
 import { Direction } from './recipe/handle-connection.js';
 import { Modality } from './modality.js';
+import { Type, TypeLiteral, InterfaceType } from './type.js';
 declare type SerializedConnectionSpec = {
     direction: Direction;
     name: string;
@@ -91,7 +91,7 @@ export declare class ParticleSpec {
     outputs: ConnectionSpec[];
     pattern: string;
     implFile: string;
-    modality: string[];
+    modality: Modality;
     slots: Map<string, SlotSpec>;
     constructor(model: SerializedParticleSpec);
     createConnection(arg: SerializedConnectionSpec, typeVarMap: Map<string, Type>): ConnectionSpec;
@@ -99,7 +99,7 @@ export declare class ParticleSpec {
     isOutput(param: string): boolean;
     getSlotSpec(slotName: string): SlotSpec;
     readonly primaryVerb: string;
-    matchModality(modality: Modality): boolean;
+    isCompatible(modality: Modality): boolean;
     toLiteral(): SerializedParticleSpec;
     static fromLiteral(literal: SerializedParticleSpec): ParticleSpec;
     clone(): ParticleSpec;

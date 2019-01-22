@@ -1,4 +1,4 @@
-import { StorageBase, StorageProviderBase } from './storage-provider-base.js';
+import { CollectionStorageProvider, StorageBase, StorageProviderBase } from './storage-provider-base.js';
 import { StorageProviderFactory } from './storage-provider-factory.js';
 import { KeyBase } from './key-base.js';
 import { Id } from '../id.js';
@@ -35,7 +35,7 @@ export declare class SyntheticStorage extends StorageBase {
     baseStorageKey(type: Type, key: string): string;
     parseStringAsKey(s: string): SyntheticKey;
 }
-declare class SyntheticCollection extends StorageProviderBase {
+declare class SyntheticCollection extends StorageProviderBase implements CollectionStorageProvider {
     private readonly targetStore;
     private readonly storageFactory;
     private readonly initialized;
@@ -47,5 +47,11 @@ declare class SyntheticCollection extends StorageProviderBase {
     toLiteral(): Promise<ArcHandle[]>;
     cloneFrom(): void;
     ensureBackingStore(): void;
+    getMultiple(ids: string[]): Promise<any[]>;
+    storeMultiple(values: any, keys: any, originatorId: any): Promise<void>;
+    removeMultiple(items: any, originatorId: string): Promise<void>;
+    get(id: string): Promise<{}>;
+    remove(id: string, keys: string[], originatorId: string): void;
+    store(value: any, keys: string[], originatorId?: string): void;
 }
 export {};

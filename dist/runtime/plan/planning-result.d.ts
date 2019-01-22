@@ -7,43 +7,61 @@
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-import { StorageProviderBase } from '../storage/storage-provider-base.js';
-import { Suggestion } from './suggestion.js';
+import { Arc } from '../arc.js';
+import { Suggestion, EnvOptions } from './suggestion.js';
+import { VariableStorageProvider } from '../storage/storage-provider-base.js';
+export declare type PlanningResultOptions = {
+    suggestions: Suggestion[];
+    lastUpdated?: Date;
+    generations?: {
+        population: {}[];
+        record: {};
+    }[];
+    contextual?: boolean;
+};
 export declare class PlanningResult {
     _suggestions: Suggestion[];
     lastUpdated: Date;
     generations: {}[];
     contextual: boolean;
-    store: StorageProviderBase;
+    store: VariableStorageProvider;
     private storeCallback;
     private changeCallbacks;
-    constructor(store: any);
+    private envOptions;
+    constructor(envOptions: EnvOptions, store?: VariableStorageProvider);
     registerChangeCallback(callback: any): void;
     onChanged(): void;
     load(): Promise<boolean>;
     flush(): Promise<void>;
-    clear(): Promise<any>;
+    clear(): Promise<void>;
     dispose(): void;
     suggestions: Suggestion[];
     static formatSerializableGenerations(generations: any): any;
-    set({ suggestions, lastUpdated, generations, contextual }: {
-        suggestions: any;
-        lastUpdated?: Date;
-        generations?: any[];
-        contextual?: boolean;
-    }): boolean;
-    append({ suggestions, lastUpdated, generations }: {
-        suggestions: any;
-        lastUpdated?: Date;
-        generations?: any[];
-    }): boolean;
+    set({ suggestions, lastUpdated, generations, contextual }: PlanningResultOptions): boolean;
+    merge({ suggestions, lastUpdated, generations, contextual }: PlanningResultOptions, arc: Arc): boolean;
+    private _isUpToDate;
+    private _getUpToDate;
+    append({ suggestions, lastUpdated, generations }: PlanningResultOptions): boolean;
     olderThan(other: any): boolean;
     isEquivalent(suggestions: any): any;
     static isEquivalent(oldSuggestions: any, newSuggestions: any): any;
-    fromLiteral({ suggestions, generations, lastUpdated }: {
+    fromLiteral({ suggestions, generations, lastUpdated, contextual }: {
         suggestions: any;
-        generations: any;
-        lastUpdated: any;
-    }): boolean;
-    toLiteral(): {};
+        generations?: any;
+        lastUpdated?: Date;
+        contextual?: boolean;
+    }): Promise<boolean>;
+    toLiteral(): {
+        suggestions: {
+            plan: string;
+            hash: string;
+            rank: number;
+            versionByStore: string;
+            searchGroups: string[][];
+            descriptionByModality: {};
+        }[];
+        generations: string;
+        lastUpdated: string;
+        contextual: boolean;
+    };
 }

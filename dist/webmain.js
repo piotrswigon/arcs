@@ -462,7 +462,6 @@ function decode(str) {
     /* tslint:enable:no-bitwise */
     return buffer;
 }
-//# sourceMappingURL=base64.js.map
 
 var navigator = {};
 navigator.userAgent = false;
@@ -1158,7 +1157,6 @@ class WebCryptoKeyIndexedDBStorage {
         return new WebCryptoKeyIndexedDBStorage();
     }
 }
-//# sourceMappingURL=webcrypto.js.map
 
 /**
  * Implementation of KeyStorage using a Map, used for testing only.
@@ -1178,7 +1176,6 @@ class WebCryptoMemoryKeyStorage {
         return new WebCryptoMemoryKeyStorage();
     }
 }
-//# sourceMappingURL=cryptotestutils.js.map
 
 /**
  * @license
@@ -1211,7 +1208,6 @@ class KeyManager {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-//# sourceMappingURL=webmain.js.map
 
 export { KeyManager };
 //# sourceMappingURL=webmain.js.map

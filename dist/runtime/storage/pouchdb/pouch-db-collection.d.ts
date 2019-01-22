@@ -1,8 +1,19 @@
+import { CrdtCollectionModel } from '../crdt-collection-model.js';
 import { PouchDbStorageProvider } from './pouch-db-storage-provider.js';
-import { Type } from '../../type.js';
+import { Type, TypeLiteral } from '../../type.js';
 import { PouchDbStorage } from './pouch-db-storage';
+import { CollectionStorageProvider } from '../storage-provider-base.js';
 import PouchDB from 'pouchdb';
-export declare class PouchDbCollection extends PouchDbStorageProvider {
+/**
+ * Contains the data that is stored within Pouch
+ */
+interface CollectionStorage {
+    model: CrdtCollectionModel;
+    version: number;
+    referenceMode: boolean;
+    type: TypeLiteral;
+}
+export declare class PouchDbCollection extends PouchDbStorageProvider implements CollectionStorageProvider {
     /** The local synced model */
     private _model;
     /**
@@ -64,7 +75,7 @@ export declare class PouchDbCollection extends PouchDbStorageProvider {
      * @remarks Note that the id referred to here is not the same as
      * used in the constructor.
      */
-    get(id: any): any;
+    get(id: string): any;
     /**
      * Store the specific value to the collection.  Value must include an id entry.
      *
@@ -80,13 +91,13 @@ export declare class PouchDbCollection extends PouchDbStorageProvider {
      * @param keys the CRDT specific keys to remove.
      * @param originatorId TBD passed to event listeners.
      */
-    remove(id: any, keys?: string[], originatorId?: any): Promise<void>;
+    remove(id: string, keys?: string[], originatorId?: string): Promise<void>;
     /**
      * Triggered when the storage key has been modified.  For now we
      * just refetch and trigger listeners.  This is fast since the data
      * is synced locally.
      */
-    onRemoteStateSynced(doc: PouchDB.Core.ExistingDocument<{}>): void;
+    onRemoteStateSynced(doc: PouchDB.Core.ExistingDocument<CollectionStorage>): void;
     /**
      * Updates the local model cache from PouchDB and returns the CRDT
      * model for use.
@@ -111,3 +122,4 @@ export declare class PouchDbCollection extends PouchDbStorageProvider {
      */
     clearItemsForTesting(): Promise<void>;
 }
+export {};

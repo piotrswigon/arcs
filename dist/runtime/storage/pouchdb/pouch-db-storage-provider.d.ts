@@ -31,4 +31,9 @@ export declare abstract class PouchDbStorageProvider extends StorageProviderBase
      * Called when the remote pouchdb server updates locally.
      */
     abstract onRemoteStateSynced(doc: PouchDB.Core.ExistingDocument<{}>): void;
+    /**
+     * Increments the local version to be one more than the maximum of
+     * the local and remove versions.
+     */
+    bumpVersion(otherVersion: number): void;
 }

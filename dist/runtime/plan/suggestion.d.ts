@@ -9,38 +9,31 @@
  */
 import { Arc } from '../arc.js';
 import { Description } from '../description.js';
+import { DescriptionFormatter } from '../description-formatter.js';
+import { Manifest } from '../manifest.js';
+import { Modality } from '../modality.js';
 import { Recipe } from '../recipe/recipe.js';
 import { Relevance } from '../relevance.js';
 import { Search } from '../recipe/search.js';
-export declare class Plan {
-    serialization: string;
-    particles: {
-        name: string;
-    }[];
-    handles: {
-        id: string;
-        tags: string[];
-    }[];
-    slots: {
-        id: string;
-        name: string;
-        tags: string[];
-    }[];
-    modalities: string[];
-    constructor(serialization: string, particles: {
-        name: string;
-    }[], handles: {
-        id: string;
-        tags: string[];
-    }[], slots: {
-        id: string;
-        name: string;
-        tags: string[];
-    }[], modalities: string[]);
-    static create(plan: Recipe): Plan;
-}
+import { Loader } from '../loader.js';
+/**
+ * options for the fromLiteral() method.
+ */
+export declare type FromLiteralOptions = {
+    plan: string;
+    hash: string;
+    rank: number;
+    versionByStore?: string;
+    searchGroups?: string[][];
+    descriptionByModality?: {};
+};
+export declare type EnvOptions = {
+    context: Manifest;
+    loader: Loader;
+};
 export declare class Suggestion {
-    plan: Plan;
+    plan: Recipe;
+    planString: string;
     descriptionByModality: {};
     versionByStore: {};
     readonly hash: string;
@@ -48,10 +41,10 @@ export declare class Suggestion {
     groupIndex: number;
     searchGroups: string[][];
     static create(plan: Recipe, hash: string, relevance: Relevance): Suggestion;
-    constructor(plan: Plan, hash: string, rank: number, versionByStore: {});
+    constructor(plan: Recipe, hash: string, rank: number, versionByStore: {});
     readonly descriptionText: string;
     getDescription(modality: string): string | {};
-    setDescription(description: Description): Promise<void>;
+    setDescription(description: Description, modality: Modality, descriptionFormatter?: typeof DescriptionFormatter): void;
     isEquivalent(other: Suggestion): boolean;
     static compare(s1: Suggestion, s2: Suggestion): number;
     hasSearch(search: string): boolean;
@@ -59,21 +52,14 @@ export declare class Suggestion {
     mergeSearch(suggestion: Suggestion): boolean;
     _addSearch(searchGroup: string[]): boolean;
     toLiteral(): {
-        plan: Plan;
+        plan: string;
         hash: string;
         rank: number;
         versionByStore: string;
         searchGroups: string[][];
         descriptionByModality: {};
     };
-    static fromLiteral({ plan, hash, rank, versionByStore, searchGroups, descriptionByModality }: {
-        plan: any;
-        hash: any;
-        rank: any;
-        versionByStore: any;
-        searchGroups: any;
-        descriptionByModality: any;
-    }): Suggestion;
+    static fromLiteral({ plan, hash, rank, versionByStore, searchGroups, descriptionByModality }: FromLiteralOptions, { context, loader }: EnvOptions): Promise<Suggestion>;
     instantiate(arc: Arc): Promise<void>;
-    static planFromString(planString: string, arc: Arc): Promise<Recipe>;
+    getResolvedPlan(arc: Arc): Promise<Recipe>;
 }

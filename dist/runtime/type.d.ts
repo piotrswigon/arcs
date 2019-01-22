@@ -83,7 +83,7 @@ export declare class EntityType extends Type {
 export declare class TypeVariable extends Type {
     readonly variable: TypeVariableInfo;
     constructor(variable: TypeVariableInfo);
-    static make(name: string, canWriteSuperset: Type | null, canReadSubset: Type | null): TypeVariable;
+    static make(name: string, canWriteSuperset?: Type, canReadSubset?: Type): TypeVariable;
     readonly isVariable: boolean;
     mergeTypeVariablesByName(variableMap: Map<string, Type>): Type;
     resolvedType(): any;
@@ -144,8 +144,8 @@ export declare class BigCollectionType extends Type {
     toPrettyString(): any;
 }
 export declare class RelationType extends Type {
-    readonly relationEntities: [Type];
-    constructor(relation: [Type]);
+    readonly relationEntities: Type[];
+    constructor(relation: Type[]);
     readonly isRelation: boolean;
     toLiteral(): {
         tag: "Entity" | "TypeVariable" | "Collection" | "BigCollection" | "Relation" | "Interface" | "Slot" | "Reference" | "Arc" | "Handle";

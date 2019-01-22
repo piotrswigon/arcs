@@ -14,11 +14,11 @@ export declare class ReplanQueue {
         [index: string]: number;
     };
     changes: number[];
-    replanTimer: any;
+    private replanTimer;
     constructor(planProducer: PlanProducer, options?: {});
     addChange(): void;
     private _onPlanningStateChanged;
-    private _isReplanningScheduled;
+    isReplanningScheduled(): boolean;
     private _scheduleReplan;
     private _cancelReplanIfScheduled;
     private _postponeReplan;

@@ -9,9 +9,9 @@
  */
 import { Type } from './type.js';
 import { ParticleExecutionHost } from './particle-execution-host.js';
+import { Handle } from './recipe/handle.js';
 import { Recipe } from './recipe/recipe.js';
 import { Manifest } from './manifest.js';
-import { Description } from './description.js';
 import { StorageProviderFactory } from './storage/storage-provider-factory.js';
 import { Id } from './id.js';
 import { Loader } from './loader.js';
@@ -19,6 +19,7 @@ import { StorageProviderBase } from './storage/storage-provider-base.js';
 import { ParticleSpec } from './particle-spec.js';
 import { PECInnerPort } from './api-channel.js';
 import { Particle } from './recipe/particle.js';
+import { Slot } from './recipe/slot.js';
 import { SlotComposer } from './slot-composer.js';
 import { Modality } from './modality.js';
 declare type ArcOptions = {
@@ -30,6 +31,7 @@ declare type ArcOptions = {
     storageKey?: string;
     storageProviderFactory?: StorageProviderFactory;
     speculative?: boolean;
+    innerArc?: boolean;
 };
 export declare type PlanCallback = (recipe: Recipe) => void;
 declare type SerializeContext = {
@@ -41,7 +43,8 @@ declare type SerializeContext = {
 export declare class Arc {
     private readonly _context;
     private readonly pecFactory;
-    private readonly speculative;
+    readonly isSpeculative: boolean;
+    readonly isInnerArc: boolean;
     private _activeRecipe;
     private _recipes;
     readonly _loader: Loader;
@@ -53,26 +56,28 @@ export declare class Arc {
     storageProviderFactory: StorageProviderFactory;
     storeTags: Map<StorageProviderBase, Set<string>>;
     private storeDescriptions;
-    private readonly _description;
     private instantiatePlanCallbacks;
     private waitForIdlePromise;
     private debugHandler;
+    private innerArcsByParticle;
     readonly id: Id;
     particleHandleMaps: Map<string, {
         spec: ParticleSpec;
         handles: Map<string, StorageProviderBase>;
     }>;
     pec: ParticleExecutionHost;
-    constructor({ id, context, pecFactory, slotComposer, loader, storageKey, storageProviderFactory, speculative }: ArcOptions);
+    constructor({ id, context, pecFactory, slotComposer, loader, storageKey, storageProviderFactory, speculative, innerArc }: ArcOptions);
     readonly loader: Loader;
-    readonly description: Description;
     readonly modality: Modality;
     registerInstantiatePlanCallback(callback: PlanCallback): void;
     unregisterInstantiatePlanCallback(callback: PlanCallback): boolean;
     dispose(): void;
     _waitForIdle(): Promise<void>;
     readonly idle: Promise<void>;
-    readonly isSpeculative: boolean;
+    findInnerArcs(particle: Particle): Arc[];
+    readonly innerArcs: Arc[];
+    readonly allDescendingArcs: Arc[];
+    createInnerArc(transformationParticle: Particle): Arc;
     _serializeHandle(handle: StorageProviderBase, context: SerializeContext, id: string): Promise<void>;
     _serializeHandles(): Promise<string>;
     _serializeParticles(): string;
@@ -89,15 +94,20 @@ export declare class Arc {
     }): Promise<Arc>;
     readonly context: Manifest;
     readonly activeRecipe: Recipe;
-    readonly recipes: any[];
+    readonly recipes: {
+        handles: Handle[];
+        particles: Particle[];
+        slots: Slot[];
+        patterns: string[];
+    }[];
     loadedParticles(): ParticleSpec[];
     _instantiateParticle(recipeParticle: Particle): void;
     generateID(component?: string): string;
     readonly _stores: StorageProviderBase[];
     cloneForSpeculativeExecution(): Promise<Arc>;
-    instantiate(recipe: Recipe, innerArc?: any): Promise<void>;
+    instantiate(recipe: Recipe): Promise<void>;
     _connectParticleToHandle(particle: any, name: any, targetHandle: any): void;
-    createStore(type: Type, name: any, id: any, tags?: any, storageKey?: any): Promise<StorageProviderBase>;
+    createStore(type: Type, name?: any, id?: string, tags?: any, storageKey?: string): Promise<StorageProviderBase>;
     _registerStore(store: StorageProviderBase, tags?: any): void;
     _tagStore(store: StorageProviderBase, tags: any): void;
     _onDataChange(): void;
@@ -106,8 +116,8 @@ export declare class Arc {
     static _typeToKey(type: Type): any;
     findStoresByType(type: Type, options?: any): StorageProviderBase[];
     findStoreById(id: any): StorageProviderBase;
-    findStoreTags(store: StorageProviderBase): Set<string> | string[];
-    getStoreDescription(store: any): any;
+    findStoreTags(store: StorageProviderBase): string[] | Set<string>;
+    getStoreDescription(store: StorageProviderBase): string;
     getVersionByStore({ includeArc, includeContext }: {
         includeArc?: boolean;
         includeContext?: boolean;
@@ -115,5 +125,6 @@ export declare class Arc {
     keyForId(id: string): string;
     stop(): void;
     toContextString(options: any): string;
+    readonly apiChannelMappingId: string;
 }
 export {};

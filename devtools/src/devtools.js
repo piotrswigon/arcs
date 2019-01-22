@@ -9,10 +9,10 @@
   let windowForEvents = undefined;
 
   const sendMessage = function chooseConnection() {
-    const peerId = new URLSearchParams(window.location.search).get('remote-webshell');
-    if (peerId) {
+    const signal = new URLSearchParams(window.location.search).get('remote-key');
+    if (signal) {
       // what if we're in devtools and debugging a device.
-      return connectViaWebRTC(peerId);
+      return connectViaWebRTC(signal);
     } else if (chrome.devtools && chrome.devtools.inspectedWindow.tabId) {
       // Use the extension API if we're in devtools and having a window to inspect.
       return connectViaExtensionApi();
@@ -97,31 +97,54 @@
     return msg => ws.send(JSON.stringify(msg));
   }
 
-  function connectViaWebRTC(peerId) {
-    const peer = new Peer(peerId);
-    let connection = null;
+  function connectViaWebRTC(signal) {
+
+    
+    let exposedP = null;
+    const p = new SimplePeer({initatior: false, trickle: false, objectMode: true});
 
     console.log('Waiting for WebShell to connect...');
-    peer.on('connection', conn => {
-      console.log('New Connection!');
-
-      conn.on('open', () => {
-        connection = conn;
-        conn.send('init');
-      });
-      
-      conn.on('data', data => {
-        queueOrFire(JSON.parse(data));
-      });
-
-      conn.on('error', x => console.log(x));
+    p.on('signal', (data) => {
+      document.querySelector('#signaling').innerHTML = btoa(JSON.stringify(data));
     });
+
+    const signalD = JSON.parse(atob(signal));
+    console.log('singalD', signalD);
+    p.signal(signalD);
+
+    p.on('connect', () => {
+      console.log('CONNECT');
+      document.querySelector('#signaling').innerHTML = '';
+      p.send('init');
+      exposedP = p;
+    });
+    p.on('data', msg => queueOrFire(JSON.parse(msg)));
+    p.on('error', function(err) { console.log('error', err); });
+
+    // const peer = new Peer(peerId);
+    // let connection = null;
+
+    // console.log('Waiting for WebShell to connect...');
+    // peer.on('connection', conn => {
+    //   console.log('New Connection!');
+
+    //   conn.on('open', () => {
+    //     connection = conn;
+    //     conn.send('init');
+    //   });
+      
+    //   conn.on('data', data => {
+    //     queueOrFire(JSON.parse(data));
+    //   });
+
+    //   conn.on('error', x => console.log(x));
+    // });
     
     return msg => {
-      if (!connection) {
+      if (!exposedP) {
         console.log('too early for', msg);
       } else {
-        connection.send(JSON.stringify(msg));
+        exposedP.send(JSON.stringify(msg));
       }
     };
   }

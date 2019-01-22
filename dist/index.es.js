@@ -19,6 +19,49 @@ import 'firebase/storage';
 
 // Copyright (c) 2017 Google Inc. All rights reserved.
 
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+var ModalityName;
+(function (ModalityName) {
+    ModalityName["Dom"] = "dom";
+    ModalityName["DomTouch"] = "dom-touch";
+    ModalityName["Vr"] = "vr";
+    ModalityName["Voice"] = "voice";
+})(ModalityName || (ModalityName = {}));
+class Modality {
+    constructor(names) {
+        this.names = names;
+    }
+    static create(names) {
+        assert$1(names.every(name => Modality.all.names.includes(name)), `Unsupported modality in: ${names}`);
+        return new Modality(names);
+    }
+    intersection(other) {
+        return new Modality(this.names.filter(name => other.names.includes(name)));
+    }
+    isResolved() {
+        return this.names.length > 0;
+    }
+    isCompatible(names) {
+        return this.intersection(Modality.create(names)).isResolved();
+    }
+    static get Name() { return ModalityName; }
+}
+Modality.all = new Modality([
+    Modality.Name.Dom, Modality.Name.DomTouch, Modality.Name.Vr, Modality.Name.Voice
+]);
+Modality.dom = new Modality([Modality.Name.Dom]);
+Modality.domTouch = new Modality([Modality.Name.DomTouch]);
+Modality.voice = new Modality([Modality.Name.Voice]);
+Modality.vr = new Modality([Modality.Name.Vr]);
+
 // Copyright (c) 2017 Google Inc. All rights reserved.
 class TypeChecker {
     // resolve a list of handleConnection types against a handle
@@ -361,7 +404,7 @@ function restore(entry, entityClass) {
     // TODO some relation magic, somewhere, at some point.
     return entity;
 }
-/** @class Handle
+/**
  * Base class for Collections and Variables.
  */
 class Handle {
@@ -817,6 +860,7 @@ class Reference {
  * http://polymer.github.io/PATENTS.txt
  */
 class Schema {
+    // tslint:disable-next-line: no-any
     constructor(names, fields, description) {
         this.names = names;
         this.fields = fields;
@@ -1696,7 +1740,7 @@ ${this._slotsToManifestString()}
                     return false;
             }
         }
-        return this;
+        return true;
     }
 }
 
@@ -2452,7 +2496,7 @@ class ParticleSpec {
             connectionSpec.pattern = model.description[connectionSpec.name];
         });
         this.implFile = model.implFile;
-        this.modality = model.modality || [];
+        this.modality = Modality.create(model.modality || []);
         this.slots = new Map();
         if (model.slots) {
             model.slots.forEach(s => this.slots.set(s.name, new SlotSpec(s)));
@@ -2488,8 +2532,8 @@ class ParticleSpec {
     get primaryVerb() {
         return (this.verbs.length > 0) ? this.verbs[0] : undefined;
     }
-    matchModality(modality) {
-        return this.slots.size <= 0 || this.modality.includes(modality.name);
+    isCompatible(modality) {
+        return this.slots.size === 0 || this.modality.intersection(modality).isResolved();
     }
     toLiteral() {
         const { args, name, verbs, description, implFile, modality, slots } = this.model;
@@ -2542,7 +2586,7 @@ class ParticleSpec {
             }
             writeConnection(connection, indent);
         }
-        this.modality.filter(a => a !== 'mock').forEach(a => results.push(`  modality ${a}`));
+        this.modality.names.forEach(a => results.push(`  modality ${a}`));
         this.slots.forEach(s => {
             // Consume slot.
             const consume = [];
@@ -2607,50 +2651,19 @@ class ParticleSpec {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-class Description {
-    constructor(arc) {
-        this.relevance = null;
-        this._particle = undefined;
-        this.arc = arc;
-    }
-    async getArcDescription(formatterClass = DescriptionFormatter) {
-        const desc = await new (formatterClass)(this).getDescription(this.arc.activeRecipe);
-        if (desc) {
-            return desc;
-        }
-        return undefined;
-    }
-    async getRecipeSuggestion(formatterClass = DescriptionFormatter) {
-        const formatter = await new (formatterClass)(this);
-        const desc = await formatter.getDescription(this.arc.recipes[this.arc.recipes.length - 1]);
-        if (desc) {
-            return desc;
-        }
-        return formatter._capitalizeAndPunctuate(this.arc.activeRecipe.name || Description.defaultDescription);
-    }
-    async getHandleDescription(recipeHandle) {
-        assert$1(recipeHandle.connections.length > 0, 'handle has no connections?');
-        const formatter = new DescriptionFormatter(this);
-        formatter.excludeValues = true;
-        return await formatter.getHandleDescription(recipeHandle);
-    }
-}
-Description.defaultDescription = 'i\'m feeling lucky';
 class DescriptionFormatter {
-    constructor(description) {
-        this.particleDescriptions = [];
+    constructor(particleDescriptions = [], storeDescById = {}) {
+        this.particleDescriptions = particleDescriptions;
+        this.storeDescById = storeDescById;
         this.seenHandles = new Set();
         this.seenParticles = new Set();
         this.excludeValues = false;
-        this.description = description;
-        this.arc = description.arc;
     }
-    async getDescription(recipe) {
-        await this._updateDescriptionHandles(this.description);
+    getDescription(recipe) {
         if (recipe.patterns.length > 0) {
             let recipePatterns = [];
             for (const pattern of recipe.patterns) {
-                recipePatterns.push(await this.patternToSuggestion(pattern, { _recipe: recipe }));
+                recipePatterns.push(this.patternToSuggestion(pattern, { _recipe: recipe }));
             }
             recipePatterns = recipePatterns.filter(pattern => Boolean(pattern));
             if (recipePatterns.length > 0) {
@@ -2675,81 +2688,20 @@ class DescriptionFormatter {
     _isSelectedDescription(desc) {
         return !!desc.pattern;
     }
-    async getHandleDescription(recipeHandle) {
-        await this._updateDescriptionHandles(this.description);
+    getHandleDescription(recipeHandle) {
         const handleConnection = this._selectHandleConnection(recipeHandle) || recipeHandle.connections[0];
-        const store = this.arc.findStoreById(recipeHandle.id);
-        return this._formatDescription(handleConnection, store);
-    }
-    async _updateDescriptionHandles(description) {
-        this.particleDescriptions = [];
-        // Combine all particles from direct and inner arcs.
-        const innerParticlesByName = {};
-        description.arc.recipes.forEach(recipe => {
-            const innerArcs = [...recipe.innerArcs.values()];
-            innerArcs.forEach(innerArc => {
-                innerArc.recipes.forEach(innerRecipe => {
-                    innerRecipe.particles.forEach(innerParticle => {
-                        if (!innerParticlesByName[innerParticle.name]) {
-                            innerParticlesByName[innerParticle.name] = innerParticle;
-                        }
-                    });
-                });
-            });
-        });
-        const allParticles = description.arc.activeRecipe.particles.concat(Object.values(innerParticlesByName));
-        await Promise.all(allParticles.map(async (particle) => {
-            this.particleDescriptions.push(await this._createParticleDescription(particle, description.relevance));
-        }));
-    }
-    async _createParticleDescription(particle, relevance) {
-        let pDesc = {
-            _particle: particle,
-            _connections: {}
-        };
-        if (relevance) {
-            pDesc._rank = relevance.calcParticleRelevance(particle);
-        }
-        const descByName = await this._getPatternByNameFromDescriptionHandle(particle) || {};
-        pDesc = Object.assign({}, pDesc, this._populateParticleDescription(particle, descByName));
-        Object.values(particle.connections).forEach(handleConn => {
-            const specConn = particle.spec.connectionMap.get(handleConn.name);
-            const pattern = descByName[handleConn.name] || specConn.pattern;
-            if (pattern) {
-                const handleDescription = { pattern, _handleConn: handleConn, _store: this.arc.findStoreById(handleConn.handle.id) };
-                pDesc._connections[handleConn.name] = handleDescription;
-            }
-        });
-        return pDesc;
-    }
-    async _getPatternByNameFromDescriptionHandle(particle) {
-        const descriptionConn = particle.connections['descriptions'];
-        if (descriptionConn && descriptionConn.handle && descriptionConn.handle.id) {
-            const descHandle = this.arc.findStoreById(descriptionConn.handle.id);
-            if (descHandle) {
-                // TODO(shans): fix this mess when there's a unified Collection class or interface.
-                const descList = await descHandle.toList();
-                const descByName = {};
-                descList.forEach(d => descByName[d.rawData.key] = d.rawData.value);
-                return descByName;
-            }
-        }
-        return undefined;
-    }
-    _populateParticleDescription(particle, descriptionByName) {
-        const pattern = descriptionByName['pattern'] || particle.spec.pattern;
-        return pattern ? { pattern } : {};
+        return this._formatDescription(handleConnection);
     }
     // TODO(mmandlis): the override of this function in subclasses also overrides the output. We'll need to unify
     // this into an output type hierarchy before we can assign a useful type to the output of this function.
     // tslint:disable-next-line: no-any 
-    async _combineSelectedDescriptions(selectedDescriptions, options = {}) {
+    _combineSelectedDescriptions(selectedDescriptions, options = {}) {
         const suggestions = [];
-        await Promise.all(selectedDescriptions.map(async (particle) => {
+        selectedDescriptions.map(particle => {
             if (!this.seenParticles.has(particle._particle)) {
-                suggestions.push(await this.patternToSuggestion(particle.pattern, particle));
+                suggestions.push(this.patternToSuggestion(particle.pattern, particle));
             }
-        }));
+        });
         const jointDescription = this._joinDescriptions(suggestions);
         if (jointDescription) {
             if (options.skipFormatting) {
@@ -2787,10 +2739,9 @@ class DescriptionFormatter {
         const last = sentence.length - 1;
         return `${sentence[0].toUpperCase()}${sentence.slice(1, last)}${sentence[last]}${sentence[last].match(/[a-z0-9()'>\]]/i) ? '.' : ''}`;
     }
-    async patternToSuggestion(pattern, particleDescription) {
+    patternToSuggestion(pattern, particleDescription) {
         const tokens = this._initTokens(pattern, particleDescription);
-        const tokenPromises = tokens.map(async (token) => await this.tokenToString(token));
-        const tokenResults = await Promise.all(tokenPromises);
+        const tokenResults = tokens.map(token => this.tokenToString(token));
         if (tokenResults.filter(res => res == undefined).length === 0) {
             return this._joinTokens(tokenResults);
         }
@@ -2863,10 +2814,11 @@ class DescriptionFormatter {
             return [{
                     fullName: valueTokens[0],
                     handleName: handleConn.name,
+                    storeId: handleConn.handle.id,
                     properties: handleNames.splice(1),
                     extra,
                     _handleConn: handleConn,
-                    _store: this.arc.findStoreById(handleConn.handle.id)
+                    value: particleDescription._connections[handleConn.name].value
                 }];
         }
         // slot connection
@@ -2889,7 +2841,7 @@ class DescriptionFormatter {
                 _providedSlotConn: providedSlotConn
             }];
     }
-    async tokenToString(token) {
+    tokenToString(token) {
         if (token.text) {
             return token.text;
         }
@@ -2904,45 +2856,46 @@ class DescriptionFormatter {
         }
         throw new Error('no handle or slot name');
     }
-    async _particleTokenToString(token) {
-        return this._combineSelectedDescriptions([token.particleDescription], { skipFormatting: true }); //debug;
+    _particleTokenToString(token) {
+        return this._combineSelectedDescriptions([token.particleDescription], { skipFormatting: true });
     }
-    async _handleTokenToString(token) {
+    _handleTokenToString(token) {
         switch (token.extra) {
             case '_type_':
                 return token._handleConn.type.toPrettyString().toLowerCase();
             case '_values_':
-                return this._formatStoreValue(token.handleName, token._store);
+                return this._formatStoreValue(token.handleName, token.value);
             case '_name_':
-                return this._formatDescription(token._handleConn, token._store);
+                return this._formatDescription(token._handleConn);
             default: {
                 assert$1(!token.extra, `Unrecognized extra ${token.extra}`);
                 // Transformation's hosted particle.
                 if (token._handleConn.type instanceof InterfaceType) {
-                    const particleSpec = ParticleSpec.fromLiteral(await token._store.get());
+                    assert$1(token.value.interfaceValue, `Missing interface type value for '${token._handleConn.type}'.`);
+                    const particleSpec = ParticleSpec.fromLiteral(token.value.interfaceValue);
                     // TODO: call this.patternToSuggestion(...) to resolved expressions in the pattern template.
                     return particleSpec.pattern;
                 }
                 // singleton handle property.
                 if (token.properties && token.properties.length > 0) {
-                    return this._propertyTokenToString(token.handleName, token._store, token.properties);
+                    return this._propertyTokenToString(token.handleName, token.value, token.properties);
                 }
                 // full handle description
-                let description = (await this._formatDescriptionPattern(token._handleConn)) ||
-                    this._formatStoreDescription(token._handleConn, token._store);
-                const storeValue = await this._formatStoreValue(token.handleName, token._store);
+                let description = this._formatDescriptionPattern(token._handleConn) ||
+                    this._formatStoreDescription(token._handleConn);
+                const storeValue = this._formatStoreValue(token.handleName, token.value);
                 if (!description) {
                     // For singleton handle, if there is no real description (the type was used), use the plain value for description.
                     // TODO: should this look at type.getContainedType() (which includes references), or maybe just check for EntityType?
-                    const storeType = token._store.type;
+                    const storeType = token._handleConn.type;
                     if (storeValue && !this.excludeValues &&
                         !(storeType instanceof CollectionType) && !(storeType instanceof BigCollectionType)) {
                         return storeValue;
                     }
                 }
                 description = description || this._formatHandleType(token._handleConn);
-                if (storeValue && !this.excludeValues && !this.seenHandles.has(token._store.id)) {
-                    this.seenHandles.add(token._store.id);
+                if (storeValue && !this.excludeValues && !this.seenHandles.has(token.storeId)) {
+                    this.seenHandles.add(token.storeId);
                     return this._combineDescriptionAndValue(token, description, storeValue);
                 }
                 return description;
@@ -2955,7 +2908,7 @@ class DescriptionFormatter {
         }
         return `${description} (${storeValue})`;
     }
-    async _slotTokenToString(token) {
+    _slotTokenToString(token) {
         switch (token.extra) {
             case '_empty_':
                 // TODO: also return false, if the consuming particles generate an empty description.
@@ -2963,60 +2916,47 @@ class DescriptionFormatter {
             default:
                 assert$1(!token.extra, `Unrecognized slot extra ${token.extra}`);
         }
-        const results = (await Promise.all(token._providedSlotConn.consumeConnections.map(async (consumeConn) => {
+        const results = token._providedSlotConn.consumeConnections.map(consumeConn => {
             const particle = consumeConn.particle;
             const particleDescription = this.particleDescriptions.find(desc => desc._particle === particle);
             this.seenParticles.add(particle);
             return this.patternToSuggestion(particle.spec.pattern, particleDescription);
-        })));
+        });
         return this._joinDescriptions(results);
     }
-    async _propertyTokenToString(handleName, store, properties) {
-        assert$1(!(store.type instanceof CollectionType) && !(store.type instanceof BigCollectionType), `Cannot return property ${properties.join(',')} for Collection or BigCollection`);
+    _propertyTokenToString(handleName, value, properties) {
+        assert$1(value.entityValue, `Cannot return property ${properties.join(',')} for non EntityType.`);
         // Use singleton value's property (eg. "09/15" for person's birthday)
-        const valueVar = await store.get();
-        if (valueVar) {
-            let value = valueVar.rawData;
-            properties.forEach(p => {
-                if (value) {
-                    value = value[p];
+        const valueVar = value.entityValue;
+        if (value.entityValue) {
+            let propertyValue = value.entityValue;
+            for (const property of properties) {
+                if (propertyValue) {
+                    propertyValue = propertyValue[property];
                 }
-            });
-            if (value) {
-                return this._formatEntityProperty(handleName, properties, value);
+            }
+            if (propertyValue) {
+                return this._formatEntityProperty(handleName, properties, propertyValue);
             }
         }
     }
     _formatEntityProperty(handleName, properties, value) {
         return value;
     }
-    async _formatStoreValue(handleName, store) {
-        if (!store) {
-            return;
-        }
-        if (store.type instanceof CollectionType) {
-            const values = await store.toList();
-            if (values && values.length > 0) {
-                return this._formatCollection(handleName, values);
+    _formatStoreValue(handleName, value) {
+        if (value) {
+            if (value.collectionValues) {
+                return this._formatCollection(handleName, value.collectionValues);
             }
-        }
-        else if (store.type instanceof BigCollectionType) {
-            const cursorId = await store.stream(1);
-            const { value, done } = await store.cursorNext(cursorId);
-            store.cursorClose(cursorId);
-            if (!done && value[0].rawData.name) {
-                return await this._formatBigCollection(handleName, value[0]);
+            if (value.bigCollectionValues) {
+                return this._formatBigCollection(handleName, value.bigCollectionValues);
             }
-        }
-        else if (store.type instanceof EntityType) {
-            const value = await store.get();
-            if (value) {
-                return this._formatSingleton(handleName, value, store.type.entitySchema.description.value);
+            if (value.entityValue) {
+                return this._formatSingleton(handleName, value);
             }
+            throw new Error(`invalid store type for handle ${handleName}`);
         }
-        else {
-            throw new Error(`invalid store type ${store.type}`);
-        }
+        return undefined;
     }
     _formatCollection(handleName, values) {
         if (values[0].rawData.name) {
@@ -3035,25 +2975,26 @@ class DescriptionFormatter {
     _formatBigCollection(handleName, firstValue) {
         return `collection of items like ${firstValue.rawData.name}`;
     }
-    _formatSingleton(handleName, value, handleDescription) {
-        if (handleDescription) {
-            let valueDescription = handleDescription;
+    _formatSingleton(handleName, value) {
+        const entityValue = value.entityValue;
+        if (value.valueDescription) {
+            let valueDescription = value.valueDescription;
             let matches;
             while (matches = valueDescription.match(/\${([a-zA-Z0-9.]+)}/)) {
-                valueDescription = valueDescription.replace(matches[0], value.rawData[matches[1]]);
+                valueDescription = valueDescription.replace(matches[0], entityValue[matches[1]]);
             }
             return valueDescription;
         }
-        if (value.rawData.name) {
-            return value.rawData.name;
+        if (entityValue['name']) {
+            return entityValue['name'];
         }
     }
-    async _formatDescription(handleConnection, store) {
-        return (await this._formatDescriptionPattern(handleConnection)) ||
-            this._formatStoreDescription(handleConnection, store) ||
+    _formatDescription(handleConnection) {
+        return this._formatDescriptionPattern(handleConnection) ||
+            this._formatStoreDescription(handleConnection) ||
             this._formatHandleType(handleConnection);
     }
-    async _formatDescriptionPattern(handleConnection) {
+    _formatDescriptionPattern(handleConnection) {
         let chosenConnection = handleConnection;
         // For "out" connection, use its own description
         // For "in" connection, use description of the highest ranked out connection with description.
@@ -3066,21 +3007,23 @@ class DescriptionFormatter {
         const chosenParticleDescription = this.particleDescriptions.find(desc => desc._particle === chosenConnection.particle);
         const handleDescription = chosenParticleDescription ? chosenParticleDescription._connections[chosenConnection.name] : null;
         // Add description to result array.
-        if (handleDescription) {
+        if (handleDescription && handleDescription.pattern) {
             // Add the connection spec's description pattern.
-            return await this.patternToSuggestion(handleDescription.pattern, chosenParticleDescription);
+            return this.patternToSuggestion(handleDescription.pattern, chosenParticleDescription);
         }
         return undefined;
     }
-    _formatStoreDescription(handleConn, store) {
-        if (store) {
-            const storeDescription = this.arc.getStoreDescription(store);
+    _formatStoreDescription(handleConn) {
+        if (handleConn.handle) {
+            assert$1(handleConn.handle.id, `no id for ${handleConn.name}?`);
+            const storeDescription = this.storeDescById[handleConn.handle.id];
             const handleType = this._formatHandleType(handleConn);
             // Use the handle description available in the arc (if it is different than type name).
             if (!!storeDescription && storeDescription !== handleType) {
                 return storeDescription;
             }
         }
+        return undefined;
     }
     _formatHandleType(handleConnection) {
         const type = handleConnection.handle && handleConnection.handle.type.isResolved() ? handleConnection.handle.type : handleConnection.type;
@@ -3091,7 +3034,7 @@ class DescriptionFormatter {
             // Choose connections with patterns (manifest-based or dynamic).
             const connectionSpec = connection.spec;
             const particleDescription = this.particleDescriptions.find(desc => desc._particle === connection.particle);
-            return !!connectionSpec.pattern || !!particleDescription._connections[connection.name];
+            return !!connectionSpec.pattern || !!particleDescription._connections[connection.name].pattern;
         });
         possibleConnections.sort((c1, c2) => {
             const isOutput1 = c1.spec.isOutput;
@@ -3131,6 +3074,142 @@ class DescriptionFormatter {
         return p2Slots - p1Slots;
     }
 }
+
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class Description {
+    constructor(particleDescriptions = [], storeDescById = {}, arcRecipeName, 
+    // TODO(mmandlis): replace Particle[] with serializable json objects.
+    arcRecipes) {
+        this.particleDescriptions = particleDescriptions;
+        this.storeDescById = storeDescById;
+        this.arcRecipeName = arcRecipeName;
+        this.arcRecipes = arcRecipes;
+    }
+    static async create(arc, relevance) {
+        const particleDescriptions = await Description.initDescriptionHandles(arc, relevance);
+        return new Description(particleDescriptions, Description._getStoreDescById(arc), arc.activeRecipe.name, arc.recipes);
+    }
+    getArcDescription(formatterClass = DescriptionFormatter) {
+        const desc = new (formatterClass)(this.particleDescriptions, this.storeDescById).getDescription({
+            patterns: [].concat.apply([], this.arcRecipes.map(recipe => recipe.patterns)),
+            particles: [].concat.apply([], this.arcRecipes.map(recipe => recipe.particles))
+        });
+        if (desc) {
+            return desc;
+        }
+        return undefined;
+    }
+    getRecipeSuggestion(formatterClass = DescriptionFormatter) {
+        const formatter = new (formatterClass)(this.particleDescriptions, this.storeDescById);
+        const desc = formatter.getDescription(this.arcRecipes[this.arcRecipes.length - 1]);
+        if (desc) {
+            return desc;
+        }
+        return formatter._capitalizeAndPunctuate(this.arcRecipeName || Description.defaultDescription);
+    }
+    getHandleDescription(recipeHandle) {
+        assert$1(recipeHandle.connections.length > 0, 'handle has no connections?');
+        const formatter = new DescriptionFormatter(this.particleDescriptions, this.storeDescById);
+        formatter.excludeValues = true;
+        return formatter.getHandleDescription(recipeHandle);
+    }
+    static _getStoreDescById(arc) {
+        const storeDescById = {};
+        for (const { id } of arc.activeRecipe.handles) {
+            const store = arc.findStoreById(id);
+            if (store) {
+                storeDescById[id] = arc.getStoreDescription(store);
+            }
+        }
+        return storeDescById;
+    }
+    static async initDescriptionHandles(arc, relevance) {
+        const particleDescriptions = [];
+        const allParticles = [].concat(...arc.allDescendingArcs.map(arc => arc.activeRecipe.particles));
+        await Promise.all(allParticles.map(async (particle) => {
+            particleDescriptions.push(await this._createParticleDescription(particle, arc, relevance));
+        }));
+        return particleDescriptions;
+    }
+    static async _createParticleDescription(particle, arc, relevance) {
+        let pDesc = {
+            _particle: particle,
+            _connections: {}
+        };
+        if (relevance) {
+            pDesc._rank = relevance.calcParticleRelevance(particle);
+        }
+        const descByName = await this._getPatternByNameFromDescriptionHandle(particle, arc) || {};
+        pDesc = Object.assign({}, pDesc, descByName);
+        pDesc.pattern = pDesc.pattern || particle.spec.pattern;
+        for (const handleConn of Object.values(particle.connections)) {
+            const specConn = particle.spec.connectionMap.get(handleConn.name);
+            const pattern = descByName[handleConn.name] || specConn.pattern;
+            const store = arc.findStoreById(handleConn.handle.id);
+            pDesc._connections[handleConn.name] = {
+                pattern,
+                _handleConn: handleConn,
+                value: await this._prepareStoreValue(store)
+            };
+        }
+        return pDesc;
+    }
+    static async _getPatternByNameFromDescriptionHandle(particle, arc) {
+        const descriptionConn = particle.connections['descriptions'];
+        if (descriptionConn && descriptionConn.handle && descriptionConn.handle.id) {
+            const descHandle = arc.findStoreById(descriptionConn.handle.id);
+            if (descHandle) {
+                // TODO(shans): fix this mess when there's a unified Collection class or interface.
+                const descList = await descHandle.toList();
+                const descByName = {};
+                descList.forEach(d => descByName[d.rawData.key] = d.rawData.value);
+                return descByName;
+            }
+        }
+        return undefined;
+    }
+    static async _prepareStoreValue(store) {
+        if (!store) {
+            return undefined;
+        }
+        if (store.type instanceof CollectionType) {
+            const values = await store.toList();
+            if (values && values.length > 0) {
+                return { collectionValues: values };
+            }
+        }
+        else if (store.type instanceof BigCollectionType) {
+            const cursorId = await store.stream(1);
+            const { value, done } = await store.cursorNext(cursorId);
+            store.cursorClose(cursorId);
+            if (!done && value[0].rawData.name) {
+                return { bigCollectionValues: value[0] };
+            }
+        }
+        else if (store.type instanceof EntityType) {
+            const value = await store.get();
+            if (value && value['rawData']) {
+                return { entityValue: value['rawData'], valueDescription: store.type.entitySchema.description.value };
+            }
+        }
+        else if (store.type instanceof InterfaceType) {
+            const interfaceValue = await store.get();
+            if (interfaceValue) {
+                return { interfaceValue };
+            }
+        }
+        return undefined;
+    }
+}
+Description.defaultDescription = 'i\'m feeling lucky';
 
 // Copyright (c) 2017 Google Inc. All rights reserved.
 
@@ -3291,12 +3370,13 @@ const parser = /*
             checkNormal(result);
             return result;
           },
-        peg$c1 = "@",
-        peg$c2 = peg$literalExpectation("@", false),
-        peg$c3 = function(annotation) { return annotation; },
-        peg$c4 = "resource",
-        peg$c5 = peg$literalExpectation("resource", false),
-        peg$c6 = function(name, body) {
+        peg$c1 = peg$otherExpectation("an annotation (e.g. @foo)"),
+        peg$c2 = "@",
+        peg$c3 = peg$literalExpectation("@", false),
+        peg$c4 = function(annotation) { return annotation; },
+        peg$c5 = "resource",
+        peg$c6 = peg$literalExpectation("resource", false),
+        peg$c7 = function(name, body) {
           return {
             kind: 'resource',
             name,
@@ -3304,22 +3384,22 @@ const parser = /*
             location: location()
           };
         },
-        peg$c7 = "start",
-        peg$c8 = peg$literalExpectation("start", false),
-        peg$c9 = function() { startIndent = indent; },
-        peg$c10 = function(lines) {
+        peg$c8 = "start",
+        peg$c9 = peg$literalExpectation("start", false),
+        peg$c10 = function() { startIndent = indent; },
+        peg$c11 = function(lines) {
           return lines.map(line => line[0].substring(startIndent.length) + line[1]).join('');
         },
-        peg$c11 = /^[^\n]/,
-        peg$c12 = peg$classExpectation(["\n"], true, false),
-        peg$c13 = function() { return text(); },
-        peg$c14 = "store",
-        peg$c15 = peg$literalExpectation("store", false),
-        peg$c16 = "of",
-        peg$c17 = peg$literalExpectation("of", false),
-        peg$c18 = "!!",
-        peg$c19 = peg$literalExpectation("!!", false),
-        peg$c20 = function(name, type, id, originalId, version, tags, source, items) {
+        peg$c12 = /^[^\n]/,
+        peg$c13 = peg$classExpectation(["\n"], true, false),
+        peg$c14 = function() { return text(); },
+        peg$c15 = "store",
+        peg$c16 = peg$literalExpectation("store", false),
+        peg$c17 = "of",
+        peg$c18 = peg$literalExpectation("of", false),
+        peg$c19 = "!!",
+        peg$c20 = peg$literalExpectation("!!", false),
+        peg$c21 = function(name, type, id, originalId, version, tags, source, items) {
             items = optional(items, extractIndented, []);
             return {
               kind: 'store',
@@ -3335,31 +3415,32 @@ const parser = /*
               description: items.length > 0 ? items[0][2] : null
             };
           },
-        peg$c21 = "in",
-        peg$c22 = peg$literalExpectation("in", false),
-        peg$c23 = function(source) { return {origin: 'file', source }; },
-        peg$c24 = function(source) { return {origin: 'resource', source }; },
-        peg$c25 = "at",
-        peg$c26 = peg$literalExpectation("at", false),
-        peg$c27 = function(source) { return {origin: 'storage', source }; },
-        peg$c28 = "description",
-        peg$c29 = peg$literalExpectation("description", false),
-        peg$c30 = "import",
-        peg$c31 = peg$literalExpectation("import", false),
-        peg$c32 = function(path) {
+        peg$c22 = "in",
+        peg$c23 = peg$literalExpectation("in", false),
+        peg$c24 = function(source) { return {origin: 'file', source }; },
+        peg$c25 = function(source) { return {origin: 'resource', source }; },
+        peg$c26 = "at",
+        peg$c27 = peg$literalExpectation("at", false),
+        peg$c28 = function(source) { return {origin: 'storage', source }; },
+        peg$c29 = "description",
+        peg$c30 = peg$literalExpectation("description", false),
+        peg$c31 = "import",
+        peg$c32 = peg$literalExpectation("import", false),
+        peg$c33 = function(path) {
             return {
               kind: 'import',
               location: location(),
               path,
             };
           },
-        peg$c33 = "interface",
-        peg$c34 = peg$literalExpectation("interface", false),
-        peg$c35 = "<",
-        peg$c36 = peg$literalExpectation("<", false),
-        peg$c37 = ">",
-        peg$c38 = peg$literalExpectation(">", false),
-        peg$c39 = function(name, typeVars, items) {
+        peg$c34 = peg$otherExpectation("an interface"),
+        peg$c35 = "interface",
+        peg$c36 = peg$literalExpectation("interface", false),
+        peg$c37 = "<",
+        peg$c38 = peg$literalExpectation("<", false),
+        peg$c39 = ">",
+        peg$c40 = peg$literalExpectation(">", false),
+        peg$c41 = function(name, typeVars, items) {
             return {
               kind: 'interface',
               location: location(),
@@ -3368,9 +3449,9 @@ const parser = /*
               slots: optional(items, extractIndented, []).filter(item => item.kind == 'interface-slot'),
             };
           },
-        peg$c40 = "*",
-        peg$c41 = peg$literalExpectation("*", false),
-        peg$c42 = function(direction, type, name) {
+        peg$c42 = "*",
+        peg$c43 = peg$literalExpectation("*", false),
+        peg$c44 = function(direction, type, name) {
             if (direction) {
               direction = direction[0];
             }
@@ -3388,15 +3469,15 @@ const parser = /*
               name,
             };
           },
-        peg$c43 = "must",
-        peg$c44 = peg$literalExpectation("must", false),
-        peg$c45 = "consume",
-        peg$c46 = peg$literalExpectation("consume", false),
-        peg$c47 = "provide",
-        peg$c48 = peg$literalExpectation("provide", false),
-        peg$c49 = "set of",
-        peg$c50 = peg$literalExpectation("set of", false),
-        peg$c51 = function(isRequired, direction, isSet, name) {
+        peg$c45 = "must",
+        peg$c46 = peg$literalExpectation("must", false),
+        peg$c47 = "consume",
+        peg$c48 = peg$literalExpectation("consume", false),
+        peg$c49 = "provide",
+        peg$c50 = peg$literalExpectation("provide", false),
+        peg$c51 = "set of",
+        peg$c52 = peg$literalExpectation("set of", false),
+        peg$c53 = function(isRequired, direction, isSet, name) {
             return {
               kind: 'interface-slot',
               location: location(),
@@ -3406,27 +3487,27 @@ const parser = /*
               isSet: !!isSet,
             };
           },
-        peg$c52 = "meta",
-        peg$c53 = peg$literalExpectation("meta", false),
-        peg$c54 = function(items) {
+        peg$c54 = "meta",
+        peg$c55 = peg$literalExpectation("meta", false),
+        peg$c56 = function(items) {
           items = items ? extractIndented(items): [];
           return {kind: 'meta', items: items, location: location()};
         },
-        peg$c55 = "name",
-        peg$c56 = peg$literalExpectation("name", false),
-        peg$c57 = ":",
-        peg$c58 = peg$literalExpectation(":", false),
-        peg$c59 = function(name) {
+        peg$c57 = "name",
+        peg$c58 = peg$literalExpectation("name", false),
+        peg$c59 = ":",
+        peg$c60 = peg$literalExpectation(":", false),
+        peg$c61 = function(name) {
           return { key: 'name', value: name, location: location(), kind: 'name' }
         },
-        peg$c60 = "storageKey",
-        peg$c61 = peg$literalExpectation("storageKey", false),
-        peg$c62 = function(key) {
+        peg$c62 = "storageKey",
+        peg$c63 = peg$literalExpectation("storageKey", false),
+        peg$c64 = function(key) {
           return {key: 'storageKey', value: key, location: location(), kind: 'storageKey' }
         },
-        peg$c63 = "particle",
-        peg$c64 = peg$literalExpectation("particle", false),
-        peg$c65 = function(name, verbs, implFile, items) {
+        peg$c65 = "particle",
+        peg$c66 = peg$literalExpectation("particle", false),
+        peg$c67 = function(name, verbs, implFile, items) {
             let args = [];
             let modality = [];
             let slots = [];
@@ -3477,14 +3558,15 @@ const parser = /*
               hasParticleArgument
             };
           },
-        peg$c66 = function(arg, dependentConnections) {
+        peg$c68 = peg$otherExpectation("a particle item"),
+        peg$c69 = function(arg, dependentConnections) {
             dependentConnections = optional(dependentConnections, extractIndented, []);
             arg.dependentConnections = dependentConnections;
             return arg;
           },
-        peg$c67 = "?",
-        peg$c68 = peg$literalExpectation("?", false),
-        peg$c69 = function(direction, isOptional, type, nametag) {
+        peg$c70 = "?",
+        peg$c71 = peg$literalExpectation("?", false),
+        peg$c72 = function(direction, isOptional, type, nametag) {
             return {
               kind: 'particle-argument',
               location: location(),
@@ -3496,53 +3578,55 @@ const parser = /*
               tags: nametag.tags,
             };
           },
-        peg$c70 = "inout",
-        peg$c71 = peg$literalExpectation("inout", false),
-        peg$c72 = "out",
-        peg$c73 = peg$literalExpectation("out", false),
-        peg$c74 = "host",
-        peg$c75 = peg$literalExpectation("host", false),
-        peg$c76 = "`consume",
-        peg$c77 = peg$literalExpectation("`consume", false),
-        peg$c78 = "`provide",
-        peg$c79 = peg$literalExpectation("`provide", false),
-        peg$c80 = function() {
+        peg$c73 = peg$otherExpectation("a direction (e.g. inout, in, out, host, `consume, `provide)"),
+        peg$c74 = "inout",
+        peg$c75 = peg$literalExpectation("inout", false),
+        peg$c76 = "out",
+        peg$c77 = peg$literalExpectation("out", false),
+        peg$c78 = "host",
+        peg$c79 = peg$literalExpectation("host", false),
+        peg$c80 = "`consume",
+        peg$c81 = peg$literalExpectation("`consume", false),
+        peg$c82 = "`provide",
+        peg$c83 = peg$literalExpectation("`provide", false),
+        peg$c84 = function() {
             return text();
           },
-        peg$c81 = "[",
-        peg$c82 = peg$literalExpectation("[", false),
-        peg$c83 = "]",
-        peg$c84 = peg$literalExpectation("]", false),
-        peg$c85 = function(type) {
+        peg$c85 = "[",
+        peg$c86 = peg$literalExpectation("[", false),
+        peg$c87 = "]",
+        peg$c88 = peg$literalExpectation("]", false),
+        peg$c89 = function(type) {
             return {
               kind: 'collection-type',
               location: location(),
               type,
             };
           },
-        peg$c86 = "BigCollection<",
-        peg$c87 = peg$literalExpectation("BigCollection<", false),
-        peg$c88 = function(type) {
+        peg$c90 = "BigCollection<",
+        peg$c91 = peg$literalExpectation("BigCollection<", false),
+        peg$c92 = function(type) {
             return {
               kind: 'big-collection-type',
               location: location(),
               type,
             };
           },
-        peg$c89 = "Reference<",
-        peg$c90 = peg$literalExpectation("Reference<", false),
-        peg$c91 = function(type) {
+        peg$c93 = "Reference<",
+        peg$c94 = peg$literalExpectation("Reference<", false),
+        peg$c95 = function(type) {
             return {
               kind: 'reference-type',
               location: location(),
               type,
             };
           },
-        peg$c92 = "~",
-        peg$c93 = peg$literalExpectation("~", false),
-        peg$c94 = "with",
-        peg$c95 = peg$literalExpectation("with", false),
-        peg$c96 = function(name, constraint) {
+        peg$c96 = peg$otherExpectation("a type variable (e.g. ~foo)"),
+        peg$c97 = "~",
+        peg$c98 = peg$literalExpectation("~", false),
+        peg$c99 = "with",
+        peg$c100 = peg$literalExpectation("with", false),
+        peg$c101 = function(name, constraint) {
             return {
               kind: 'variable-type',
               location: location(),
@@ -3550,15 +3634,15 @@ const parser = /*
               constraint: optional(constraint, constraint => constraint[3], null),
             };
           },
-        peg$c97 = "Slot",
-        peg$c98 = peg$literalExpectation("Slot", false),
-        peg$c99 = "{",
-        peg$c100 = peg$literalExpectation("{", false),
-        peg$c101 = ",",
-        peg$c102 = peg$literalExpectation(",", false),
-        peg$c103 = "}",
-        peg$c104 = peg$literalExpectation("}", false),
-        peg$c105 = function(fields) {
+        peg$c102 = "Slot",
+        peg$c103 = peg$literalExpectation("Slot", false),
+        peg$c104 = "{",
+        peg$c105 = peg$literalExpectation("{", false),
+        peg$c106 = ",",
+        peg$c107 = peg$literalExpectation(",", false),
+        peg$c108 = "}",
+        peg$c109 = peg$literalExpectation("}", false),
+        peg$c110 = function(fields) {
           fields = optional(fields, fields => {
             let data = fields[2];
             return [data[0]].concat(data[1].map(tail => tail[2]));
@@ -3570,7 +3654,7 @@ const parser = /*
             fields
           };
         },
-        peg$c106 = function(name, value) {
+        peg$c111 = function(name, value) {
           return {
             kind: 'slot-field',
             location: location(),
@@ -3578,44 +3662,44 @@ const parser = /*
             value
           }
         },
-        peg$c107 = function(name) {
+        peg$c112 = function(name) {
             return {
               kind: 'type-name',
               location: location(),
               name,
             };
           },
-        peg$c108 = function(head, tail) {
+        peg$c113 = function(head, tail) {
             return [head, ...tail.map(a => a[2])];
           },
-        peg$c109 = "affordance",
-        peg$c110 = peg$literalExpectation("affordance", false),
-        peg$c111 = "modality",
-        peg$c112 = peg$literalExpectation("modality", false),
-        peg$c113 = function(modality) {
+        peg$c114 = "affordance",
+        peg$c115 = peg$literalExpectation("affordance", false),
+        peg$c116 = "modality",
+        peg$c117 = peg$literalExpectation("modality", false),
+        peg$c118 = function(modality) {
             return {
               kind: 'particle-modality',
               location: location(),
               modality,
             };
           },
-        peg$c114 = "dom-touch",
-        peg$c115 = peg$literalExpectation("dom-touch", false),
-        peg$c116 = "dom",
-        peg$c117 = peg$literalExpectation("dom", false),
-        peg$c118 = "vr",
-        peg$c119 = peg$literalExpectation("vr", false),
-        peg$c120 = "voice",
-        peg$c121 = peg$literalExpectation("voice", false),
-        peg$c122 = "mock-dom-touch",
-        peg$c123 = peg$literalExpectation("mock-dom-touch", false),
-        peg$c124 = "mock-dom",
-        peg$c125 = peg$literalExpectation("mock-dom", false),
-        peg$c126 = "mock-vr",
-        peg$c127 = peg$literalExpectation("mock-vr", false),
-        peg$c128 = "mock-voice",
-        peg$c129 = peg$literalExpectation("mock-voice", false),
-        peg$c130 = function(isRequired, isSet, name, tags, items) {
+        peg$c119 = "dom-touch",
+        peg$c120 = peg$literalExpectation("dom-touch", false),
+        peg$c121 = "dom",
+        peg$c122 = peg$literalExpectation("dom", false),
+        peg$c123 = "vr",
+        peg$c124 = peg$literalExpectation("vr", false),
+        peg$c125 = "voice",
+        peg$c126 = peg$literalExpectation("voice", false),
+        peg$c127 = "mock-dom-touch",
+        peg$c128 = peg$literalExpectation("mock-dom-touch", false),
+        peg$c129 = "mock-dom",
+        peg$c130 = peg$literalExpectation("mock-dom", false),
+        peg$c131 = "mock-vr",
+        peg$c132 = peg$literalExpectation("mock-vr", false),
+        peg$c133 = "mock-voice",
+        peg$c134 = peg$literalExpectation("mock-voice", false),
+        peg$c135 = function(isRequired, isSet, name, tags, items) {
             let formFactor = null;
             let providedSlots = [];
             items = optional(items, extractIndented, []);
@@ -3641,24 +3725,24 @@ const parser = /*
               providedSlots
             };
           },
-        peg$c131 = "formFactor",
-        peg$c132 = peg$literalExpectation("formFactor", false),
-        peg$c133 = "fullscreen",
-        peg$c134 = peg$literalExpectation("fullscreen", false),
-        peg$c135 = "big",
-        peg$c136 = peg$literalExpectation("big", false),
-        peg$c137 = "medium",
-        peg$c138 = peg$literalExpectation("medium", false),
-        peg$c139 = "small",
-        peg$c140 = peg$literalExpectation("small", false),
-        peg$c141 = function(formFactor) {
+        peg$c136 = "formFactor",
+        peg$c137 = peg$literalExpectation("formFactor", false),
+        peg$c138 = "fullscreen",
+        peg$c139 = peg$literalExpectation("fullscreen", false),
+        peg$c140 = "big",
+        peg$c141 = peg$literalExpectation("big", false),
+        peg$c142 = "medium",
+        peg$c143 = peg$literalExpectation("medium", false),
+        peg$c144 = "small",
+        peg$c145 = peg$literalExpectation("small", false),
+        peg$c146 = function(formFactor) {
             return {
               kind: 'form-factor',
               location: location(),
               formFactor
             };
           },
-        peg$c142 = function(isRequired, isSet, name, tags, items) {
+        peg$c147 = function(isRequired, isSet, name, tags, items) {
             let formFactor = null;
             let handles = [];
             items = items ? extractIndented(items) : [];
@@ -3682,16 +3766,16 @@ const parser = /*
               handles
             };
           },
-        peg$c143 = "handle",
-        peg$c144 = peg$literalExpectation("handle", false),
-        peg$c145 = function(handle) {
+        peg$c148 = "handle",
+        peg$c149 = peg$literalExpectation("handle", false),
+        peg$c150 = function(handle) {
             return {
               kind: 'particle-provided-slot-handle',
               location: location(),
               handle,
             };
           },
-        peg$c146 = function(pattern, handleDescriptions) {
+        peg$c151 = function(pattern, handleDescriptions) {
             handleDescriptions = optional(handleDescriptions, extractIndented, []);
             let patterns = [];
             if (pattern) {
@@ -3714,7 +3798,7 @@ const parser = /*
               ],
             };
           },
-        peg$c147 = function(name, pattern) {
+        peg$c152 = function(name, pattern) {
             return {
               kind: 'handle-description',
               location: location(),
@@ -3722,9 +3806,9 @@ const parser = /*
               pattern,
             };
           },
-        peg$c148 = "recipe",
-        peg$c149 = peg$literalExpectation("recipe", false),
-        peg$c150 = function(name, verbs, items) {
+        peg$c153 = "recipe",
+        peg$c154 = peg$literalExpectation("recipe", false),
+        peg$c155 = function(name, verbs, items) {
             verbs = optional(verbs, parsedOutput => parsedOutput[1], []);
             return {
               kind: 'recipe',
@@ -3734,12 +3818,12 @@ const parser = /*
               items: optional(items, extractIndented, []),
             };
           },
-        peg$c151 = "as",
-        peg$c152 = peg$literalExpectation("as", false),
-        peg$c153 = function(name) {
+        peg$c156 = "as",
+        peg$c157 = peg$literalExpectation("as", false),
+        peg$c158 = function(name) {
             return name;
           },
-        peg$c154 = function(ref, name, connections) {
+        peg$c159 = function(ref, name, connections) {
             let handleConnections = [];
             let slotConnections = [];
             if (connections) {
@@ -3760,7 +3844,7 @@ const parser = /*
               slotConnections: slotConnections,
             };
           },
-        peg$c155 = function(param, dir, target, dependentConnections) {
+        peg$c160 = function(param, dir, target, dependentConnections) {
             return {
               kind: 'handle-connection',
               location: location(),
@@ -3770,7 +3854,7 @@ const parser = /*
               dependentConnections: optional(dependentConnections, extractIndented, []),
             };
           },
-        peg$c156 = function(param, tags) {
+        peg$c161 = function(param, tags) {
             param = optional(param, param => param, null);
             let name = null;
             let particle = null;
@@ -3789,7 +3873,7 @@ const parser = /*
               tags: optional(tags, tags => tags, []),
             }
           },
-        peg$c157 = function(direction, ref, name, dependentSlotConnections) {
+        peg$c162 = function(direction, ref, name, dependentSlotConnections) {
             return {
               kind: 'slot-connection',
               location: location(),
@@ -3800,7 +3884,7 @@ const parser = /*
               dependentSlotConnections: optional(dependentSlotConnections, extractIndented, []),
             };
           },
-        peg$c158 = function(param, tags) {
+        peg$c163 = function(param, tags) {
             return {
               kind: 'slot-connection-ref',
               location: location(),
@@ -3808,7 +3892,7 @@ const parser = /*
               tags,
             };
           },
-        peg$c159 = function(from, direction, to) {
+        peg$c164 = function(from, direction, to) {
             return {
               kind: 'connection',
               location: location(),
@@ -3817,11 +3901,11 @@ const parser = /*
               to,
             };
           },
-        peg$c160 = "search",
-        peg$c161 = peg$literalExpectation("search", false),
-        peg$c162 = "tokens",
-        peg$c163 = peg$literalExpectation("tokens", false),
-        peg$c164 = function(phrase, tokens) {
+        peg$c165 = "search",
+        peg$c166 = peg$literalExpectation("search", false),
+        peg$c167 = "tokens",
+        peg$c168 = peg$literalExpectation("tokens", false),
+        peg$c169 = function(phrase, tokens) {
             return {
               kind: 'search',
               location: location(),
@@ -3829,13 +3913,13 @@ const parser = /*
               tokens: optional(tokens, tokens => tokens[1][2].map(t => t[1]), null)
             };
           },
-        peg$c165 = "<-",
-        peg$c166 = peg$literalExpectation("<-", false),
-        peg$c167 = "->",
-        peg$c168 = peg$literalExpectation("->", false),
-        peg$c169 = "=",
-        peg$c170 = peg$literalExpectation("=", false),
-        peg$c171 = function(verbs, components) {
+        peg$c170 = "<-",
+        peg$c171 = peg$literalExpectation("<-", false),
+        peg$c172 = "->",
+        peg$c173 = peg$literalExpectation("->", false),
+        peg$c174 = "=",
+        peg$c175 = peg$literalExpectation("=", false),
+        peg$c176 = function(verbs, components) {
             let {param, tags} = optional(components, components => components, {param: null, tags: []});
             return {
               kind: 'connection-target',
@@ -3846,7 +3930,7 @@ const parser = /*
               tags
             }
           },
-        peg$c172 = function(tags) {
+        peg$c177 = function(tags) {
             return {
               kind: 'connection-target',
               location: location(),
@@ -3854,7 +3938,7 @@ const parser = /*
               tags
             }
           },
-        peg$c173 = function(name, components) {
+        peg$c178 = function(name, components) {
             let {param, tags} = optional(components, components => components, {param: null, tags: []});
             return {
               kind: 'connection-target',
@@ -3865,7 +3949,7 @@ const parser = /*
               tags
             }
           },
-        peg$c174 = function(particle, components) {
+        peg$c179 = function(particle, components) {
             let {param, tags} = optional(components, components => components, {param: null, tags: []});
             return {
               kind: 'connection-target',
@@ -3876,25 +3960,25 @@ const parser = /*
               tags
             }
           },
-        peg$c175 = ".",
-        peg$c176 = peg$literalExpectation(".", false),
-        peg$c177 = function(param, tags) {
+        peg$c180 = ".",
+        peg$c181 = peg$literalExpectation(".", false),
+        peg$c182 = function(param, tags) {
             return {
               param: optional(param, param => param, null),
               tags: optional(tags, tags => tags[1], []),
             }
           },
-        peg$c178 = "use",
-        peg$c179 = peg$literalExpectation("use", false),
-        peg$c180 = "map",
-        peg$c181 = peg$literalExpectation("map", false),
-        peg$c182 = "create",
-        peg$c183 = peg$literalExpectation("create", false),
-        peg$c184 = "copy",
-        peg$c185 = peg$literalExpectation("copy", false),
-        peg$c186 = "`slot",
-        peg$c187 = peg$literalExpectation("`slot", false),
-        peg$c188 = function(type, ref, name) {
+        peg$c183 = "use",
+        peg$c184 = peg$literalExpectation("use", false),
+        peg$c185 = "map",
+        peg$c186 = peg$literalExpectation("map", false),
+        peg$c187 = "create",
+        peg$c188 = peg$literalExpectation("create", false),
+        peg$c189 = "copy",
+        peg$c190 = peg$literalExpectation("copy", false),
+        peg$c191 = "`slot",
+        peg$c192 = peg$literalExpectation("`slot", false),
+        peg$c193 = function(type, ref, name) {
             return {
               kind: 'handle',
               location: location(),
@@ -3903,16 +3987,16 @@ const parser = /*
               fate: type
             }
           },
-        peg$c189 = "require",
-        peg$c190 = peg$literalExpectation("require", false),
-        peg$c191 = function(items) {
+        peg$c194 = "require",
+        peg$c195 = peg$literalExpectation("require", false),
+        peg$c196 = function(items) {
             return {
               kind: 'require',
               location: location(),
               items: extractIndented(items),
             }
           },
-        peg$c192 = function(name, id, tags) {
+        peg$c197 = function(name, id, tags) {
             return {
               kind: 'requireHandle',
               location: location(),
@@ -3921,36 +4005,37 @@ const parser = /*
               tags: tags || []
             }
           },
-        peg$c193 = "#",
-        peg$c194 = peg$literalExpectation("#", false),
-        peg$c195 = /^[a-zA-Z]/,
-        peg$c196 = peg$classExpectation([["a", "z"], ["A", "Z"]], false, false),
-        peg$c197 = /^[a-zA-Z0-9_]/,
-        peg$c198 = peg$classExpectation([["a", "z"], ["A", "Z"], ["0", "9"], "_"], false, false),
-        peg$c199 = function() {return text().substring(1);},
-        peg$c200 = function(head, tail) { return [head, ...(tail && tail[1] || [])]; },
-        peg$c201 = "&",
-        peg$c202 = peg$literalExpectation("&", false),
-        peg$c203 = function(tags) { return tags; },
-        peg$c204 = function(name, tags) {
+        peg$c198 = "#",
+        peg$c199 = peg$literalExpectation("#", false),
+        peg$c200 = /^[a-zA-Z]/,
+        peg$c201 = peg$classExpectation([["a", "z"], ["A", "Z"]], false, false),
+        peg$c202 = /^[a-zA-Z0-9_]/,
+        peg$c203 = peg$classExpectation([["a", "z"], ["A", "Z"], ["0", "9"], "_"], false, false),
+        peg$c204 = function() {return text().substring(1);},
+        peg$c205 = function(head, tail) { return [head, ...(tail && tail[1] || [])]; },
+        peg$c206 = peg$otherExpectation("a verb (e.g. &Verb)"),
+        peg$c207 = "&",
+        peg$c208 = peg$literalExpectation("&", false),
+        peg$c209 = function(tags) { return tags; },
+        peg$c210 = function(name, tags) {
              return {
                name: name,
                tags: tags = optional(tags, list => list[1], [])
              }
            },
-        peg$c205 = function(name) {
+        peg$c211 = function(name) {
              return {
                name: name,
                tags: []
              };
            },
-        peg$c206 = function(tags) {
+        peg$c212 = function(tags) {
               return {
                 name: tags[0],
                 tags: tags
               }
            },
-        peg$c207 = function(name) {
+        peg$c213 = function(name) {
             return {
               kind: 'particle-ref',
               location: location(),
@@ -3958,14 +4043,14 @@ const parser = /*
               verbs: [],
             };
           },
-        peg$c208 = function(verb) {
+        peg$c214 = function(verb) {
             return {
               kind: 'particle-ref',
               location: location(),
               verbs: [verb],
             };
           },
-        peg$c209 = function(id, tags) {
+        peg$c215 = function(id, tags) {
             return {
               kind: 'handle-ref',
               location: location(),
@@ -3973,7 +4058,7 @@ const parser = /*
               tags: tags || [],
             };
           },
-        peg$c210 = function(name, tags) {
+        peg$c216 = function(name, tags) {
             return {
               kind: 'handle-ref',
               location: location(),
@@ -3981,16 +4066,16 @@ const parser = /*
               tags: tags || [],
             };
           },
-        peg$c211 = function(tags) {
+        peg$c217 = function(tags) {
             return {
               kind: 'handle-ref',
               location: location(),
               tags,
             };
           },
-        peg$c212 = "slot",
-        peg$c213 = peg$literalExpectation("slot", false),
-        peg$c214 = function(ref, name) {
+        peg$c218 = "slot",
+        peg$c219 = peg$literalExpectation("slot", false),
+        peg$c220 = function(ref, name) {
             return {
               kind: 'slot',
               location: location(),
@@ -3998,7 +4083,7 @@ const parser = /*
               name: optional(name, name => name[1], '')
             }
           },
-        peg$c215 = function(names, fields) {
+        peg$c221 = function(names, fields) {
             return {
               kind: 'schema-inline',
               location: location(),
@@ -4006,7 +4091,7 @@ const parser = /*
               fields: optional(fields, fields => [fields[0], ...fields[1].map(tail => tail[2])], []),
             }
           },
-        peg$c216 = function(type, name) {
+        peg$c222 = function(type, name) {
             return {
               kind: 'schema-inline-field',
               location: location(),
@@ -4014,17 +4099,17 @@ const parser = /*
               type: optional(type, type => type[0], null),
             };
           },
-        peg$c217 = "schema",
-        peg$c218 = peg$literalExpectation("schema", false),
-        peg$c219 = function(names, parents) {
+        peg$c223 = "schema",
+        peg$c224 = peg$literalExpectation("schema", false),
+        peg$c225 = function(names, parents) {
             return {
               names: names.map(name => name[1]).filter(name => name != '*'),
               parents: optional(parents, parents => parents, []),
             };
           },
-        peg$c220 = "alias",
-        peg$c221 = peg$literalExpectation("alias", false),
-        peg$c222 = function(spec, alias, items) {
+        peg$c226 = "alias",
+        peg$c227 = peg$literalExpectation("alias", false),
+        peg$c228 = function(spec, alias, items) {
             return Object.assign(spec, {
               kind: 'schema',
               location: location(),
@@ -4032,23 +4117,23 @@ const parser = /*
               alias,
             });
           },
-        peg$c223 = function(spec, items) {
+        peg$c229 = function(spec, items) {
             return Object.assign(spec, {
               kind: 'schema',
               location: location(),
               items: optional(items, extractIndented, []),
             });
           },
-        peg$c224 = "extends",
-        peg$c225 = peg$literalExpectation("extends", false),
-        peg$c226 = function(first, rest) {
+        peg$c230 = "extends",
+        peg$c231 = peg$literalExpectation("extends", false),
+        peg$c232 = function(first, rest) {
           var list = [first];
           for (let item of rest) {
             list.push(item[3]);
           }
           return list;
         },
-        peg$c227 = function(type, name) {
+        peg$c233 = function(type, name) {
             return {
               kind: 'schema-field',
               location: location(),
@@ -4056,60 +4141,62 @@ const parser = /*
               name,
             };
           },
-        peg$c228 = function(schema) {
+        peg$c234 = function(schema) {
             return {
               kind: 'schema-collection',
               location: location(),
               schema
             }
           },
-        peg$c229 = function(schema) {
+        peg$c235 = function(schema) {
             return {
               kind: 'schema-reference',
               location: location(),
               schema
             };
           },
-        peg$c230 = "Text",
-        peg$c231 = peg$literalExpectation("Text", false),
-        peg$c232 = "URL",
-        peg$c233 = peg$literalExpectation("URL", false),
-        peg$c234 = "Number",
-        peg$c235 = peg$literalExpectation("Number", false),
-        peg$c236 = "Boolean",
-        peg$c237 = peg$literalExpectation("Boolean", false),
-        peg$c238 = "Bytes",
-        peg$c239 = peg$literalExpectation("Bytes", false),
-        peg$c240 = "Object",
-        peg$c241 = peg$literalExpectation("Object", false),
-        peg$c242 = "(",
-        peg$c243 = peg$literalExpectation("(", false),
-        peg$c244 = "or",
-        peg$c245 = peg$literalExpectation("or", false),
-        peg$c246 = ")",
-        peg$c247 = peg$literalExpectation(")", false),
-        peg$c248 = function(first, rest) {
+        peg$c236 = "Text",
+        peg$c237 = peg$literalExpectation("Text", false),
+        peg$c238 = "URL",
+        peg$c239 = peg$literalExpectation("URL", false),
+        peg$c240 = "Number",
+        peg$c241 = peg$literalExpectation("Number", false),
+        peg$c242 = "Boolean",
+        peg$c243 = peg$literalExpectation("Boolean", false),
+        peg$c244 = "Bytes",
+        peg$c245 = peg$literalExpectation("Bytes", false),
+        peg$c246 = "Object",
+        peg$c247 = peg$literalExpectation("Object", false),
+        peg$c248 = "(",
+        peg$c249 = peg$literalExpectation("(", false),
+        peg$c250 = "or",
+        peg$c251 = peg$literalExpectation("or", false),
+        peg$c252 = ")",
+        peg$c253 = peg$literalExpectation(")", false),
+        peg$c254 = function(first, rest) {
             let types = [first];
             for (let type of rest) {
               types.push(type[3]);
             }
             return {kind: 'schema-union', location: location(), types};
           },
-        peg$c249 = function(first, rest) {
+        peg$c255 = function(first, rest) {
             let types = [first];
             for (let type of rest) {
               types.push(type[3]);
             }
             return {kind: 'schema-tuple', location: location(), types};
           },
-        peg$c250 = /^[0-9]/,
-        peg$c251 = peg$classExpectation([["0", "9"]], false, false),
-        peg$c252 = function(version) {
+        peg$c256 = peg$otherExpectation("a version number (e.g. @012)"),
+        peg$c257 = /^[0-9]/,
+        peg$c258 = peg$classExpectation([["0", "9"]], false, false),
+        peg$c259 = function(version) {
             return Number(version.join(''));
           },
-        peg$c253 = " ",
-        peg$c254 = peg$literalExpectation(" ", false),
-        peg$c255 = function(i) {
+        peg$c260 = peg$otherExpectation("indentation"),
+        peg$c261 = " ",
+        peg$c262 = peg$literalExpectation(" ", false),
+        peg$c263 = function(i) {
           i = i.join('');
           if (i.length > indent.length) {
             indents.push(indent);
@@ -4117,7 +4204,8 @@ const parser = /*
             return true;
           }
         },
-        peg$c256 = function(i) {
+        peg$c264 = peg$otherExpectation("same indentation"),
+        peg$c265 = function(i) {
           i = i.join('');
           if (i.length == indent.length) {
             return true;
@@ -4126,7 +4214,8 @@ const parser = /*
             return false;
           }
         },
-        peg$c257 = function(i) {
+        peg$c266 = peg$otherExpectation("same or more indentation"),
+        peg$c267 = function(i) {
           i = i.join('');
           if (i.length >= indent.length) {
             return true;
@@ -4135,36 +4224,43 @@ const parser = /*
             return false;
           }
         },
-        peg$c258 = /^[^a-zA-Z0-9_]/,
-        peg$c259 = peg$classExpectation([["a", "z"], ["A", "Z"], ["0", "9"], "_"], true, false),
-        peg$c260 = peg$anyExpectation(),
-        peg$c261 = function(keyword) {
+        peg$c268 = /^[^a-zA-Z0-9_]/,
+        peg$c269 = peg$classExpectation([["a", "z"], ["A", "Z"], ["0", "9"], "_"], true, false),
+        peg$c270 = peg$anyExpectation(),
+        peg$c271 = function(keyword) {
           throw new ManifestParserError(location(), `Expected identifier but keyword, '${keyword}' found.`);
         },
-        peg$c262 = "`",
-        peg$c263 = peg$literalExpectation("`", false),
-        peg$c264 = /^[^`]/,
-        peg$c265 = peg$classExpectation(["`"], true, false),
-        peg$c266 = function(pattern) { return pattern.join(''); },
-        peg$c267 = "'",
-        peg$c268 = peg$literalExpectation("'", false),
-        peg$c269 = /^[^']/,
-        peg$c270 = peg$classExpectation(["'"], true, false),
-        peg$c271 = function(id) { return id.join(''); },
-        peg$c272 = /^[A-Z]/,
-        peg$c273 = peg$classExpectation([["A", "Z"]], false, false),
-        peg$c274 = /^[a-z0-9_]/i,
-        peg$c275 = peg$classExpectation([["a", "z"], ["0", "9"], "_"], false, true),
-        peg$c276 = /^[a-z]/,
-        peg$c277 = peg$classExpectation([["a", "z"]], false, false),
-        peg$c278 = /^[ ]/,
-        peg$c279 = peg$classExpectation([" "], false, false),
-        peg$c280 = "//",
-        peg$c281 = peg$literalExpectation("//", false),
-        peg$c282 = "\r",
-        peg$c283 = peg$literalExpectation("\r", false),
-        peg$c284 = "\n",
-        peg$c285 = peg$literalExpectation("\n", false),
+        peg$c272 = peg$otherExpectation("a `backquoted string`"),
+        peg$c273 = "`",
+        peg$c274 = peg$literalExpectation("`", false),
+        peg$c275 = /^[^`]/,
+        peg$c276 = peg$classExpectation(["`"], true, false),
+        peg$c277 = function(pattern) { return pattern.join(''); },
+        peg$c278 = peg$otherExpectation("an identifier (e.g. 'id')"),
+        peg$c279 = "'",
+        peg$c280 = peg$literalExpectation("'", false),
+        peg$c281 = /^[^']/,
+        peg$c282 = peg$classExpectation(["'"], true, false),
+        peg$c283 = function(id) { return id.join(''); },
+        peg$c284 = peg$otherExpectation("an uppercase identifier (e.g. Foo)"),
+        peg$c285 = /^[A-Z]/,
+        peg$c286 = peg$classExpectation([["A", "Z"]], false, false),
+        peg$c287 = /^[a-z0-9_]/i,
+        peg$c288 = peg$classExpectation([["a", "z"], ["0", "9"], "_"], false, true),
+        peg$c289 = peg$otherExpectation("a lowercase identifier (e.g. foo)"),
+        peg$c290 = /^[a-z]/,
+        peg$c291 = peg$classExpectation([["a", "z"]], false, false),
+        peg$c292 = peg$otherExpectation("a field name (e.g. foo9)"),
+        peg$c293 = peg$otherExpectation("one or more whitespace characters"),
+        peg$c294 = peg$otherExpectation("a new line"),
+        peg$c295 = /^[ ]/,
+        peg$c296 = peg$classExpectation([" "], false, false),
+        peg$c297 = "//",
+        peg$c298 = peg$literalExpectation("//", false),
+        peg$c299 = "\r",
+        peg$c300 = peg$literalExpectation("\r", false),
+        peg$c301 = "\n",
+        peg$c302 = peg$literalExpectation("\n", false),
 
         peg$currPos          = 0,
         peg$savedPos         = 0,
@@ -4211,6 +4307,10 @@ const parser = /*
 
     function peg$endExpectation() {
       return { type: "end" };
+    }
+
+    function peg$otherExpectation(description) {
+      return { type: "other", description: description };
     }
 
     function peg$computePosDetails(pos) {
@@ -4449,19 +4549,20 @@ const parser = /*
     function peg$parseAnnotation() {
       var s0, s1, s2;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 64) {
-        s1 = peg$c1;
+        s1 = peg$c2;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c2); }
+        if (peg$silentFails === 0) { peg$fail(peg$c3); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parselowerIdent();
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c3(s2);
+          s1 = peg$c4(s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -4471,6 +4572,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c1); }
+      }
 
       return s0;
     }
@@ -4479,12 +4585,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 8) === peg$c4) {
-        s1 = peg$c4;
+      if (input.substr(peg$currPos, 8) === peg$c5) {
+        s1 = peg$c5;
         peg$currPos += 8;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c5); }
+        if (peg$silentFails === 0) { peg$fail(peg$c6); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -4507,7 +4613,7 @@ const parser = /*
                       }
                       if (s9 !== peg$FAILED) {
                         peg$savedPos = s0;
-                        s1 = peg$c6(s3, s8);
+                        s1 = peg$c7(s3, s8);
                         s0 = s1;
                       } else {
                         peg$currPos = s0;
@@ -4553,18 +4659,18 @@ const parser = /*
       var s0, s1, s2;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5) === peg$c7) {
-        s1 = peg$c7;
+      if (input.substr(peg$currPos, 5) === peg$c8) {
+        s1 = peg$c8;
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c8); }
+        if (peg$silentFails === 0) { peg$fail(peg$c9); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseeolWhiteSpace();
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c9();
+          s1 = peg$c10();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -4622,7 +4728,7 @@ const parser = /*
       }
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c10(s1);
+        s1 = peg$c11(s1);
       }
       s0 = s1;
 
@@ -4634,28 +4740,28 @@ const parser = /*
 
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c11.test(input.charAt(peg$currPos))) {
+      if (peg$c12.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c12); }
+        if (peg$silentFails === 0) { peg$fail(peg$c13); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c11.test(input.charAt(peg$currPos))) {
+        if (peg$c12.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c12); }
+          if (peg$silentFails === 0) { peg$fail(peg$c13); }
         }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseeol();
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c13();
+          s1 = peg$c14();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -4673,12 +4779,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5) === peg$c14) {
-        s1 = peg$c14;
+      if (input.substr(peg$currPos, 5) === peg$c15) {
+        s1 = peg$c15;
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c15); }
+        if (peg$silentFails === 0) { peg$fail(peg$c16); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -4687,12 +4793,12 @@ const parser = /*
           if (s3 !== peg$FAILED) {
             s4 = peg$parsewhiteSpace();
             if (s4 !== peg$FAILED) {
-              if (input.substr(peg$currPos, 2) === peg$c16) {
-                s5 = peg$c16;
+              if (input.substr(peg$currPos, 2) === peg$c17) {
+                s5 = peg$c17;
                 peg$currPos += 2;
               } else {
                 s5 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c17); }
+                if (peg$silentFails === 0) { peg$fail(peg$c18); }
               }
               if (s5 !== peg$FAILED) {
                 s6 = peg$parsewhiteSpace();
@@ -4719,12 +4825,12 @@ const parser = /*
                     }
                     if (s8 !== peg$FAILED) {
                       s9 = peg$currPos;
-                      if (input.substr(peg$currPos, 2) === peg$c18) {
-                        s10 = peg$c18;
+                      if (input.substr(peg$currPos, 2) === peg$c19) {
+                        s10 = peg$c19;
                         peg$currPos += 2;
                       } else {
                         s10 = peg$FAILED;
-                        if (peg$silentFails === 0) { peg$fail(peg$c19); }
+                        if (peg$silentFails === 0) { peg$fail(peg$c20); }
                       }
                       if (s10 !== peg$FAILED) {
                         s11 = peg$parseid();
@@ -4844,7 +4950,7 @@ const parser = /*
                                   }
                                   if (s15 !== peg$FAILED) {
                                     peg$savedPos = s0;
-                                    s1 = peg$c20(s3, s7, s8, s9, s10, s11, s13, s15);
+                                    s1 = peg$c21(s3, s7, s8, s9, s10, s11, s13, s15);
                                     s0 = s1;
                                   } else {
                                     peg$currPos = s0;
@@ -4945,12 +5051,12 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c21) {
-        s1 = peg$c21;
+      if (input.substr(peg$currPos, 2) === peg$c22) {
+        s1 = peg$c22;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c22); }
+        if (peg$silentFails === 0) { peg$fail(peg$c23); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -4958,7 +5064,7 @@ const parser = /*
           s3 = peg$parseid();
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c23(s3);
+            s1 = peg$c24(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -4980,12 +5086,12 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c21) {
-        s1 = peg$c21;
+      if (input.substr(peg$currPos, 2) === peg$c22) {
+        s1 = peg$c22;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c22); }
+        if (peg$silentFails === 0) { peg$fail(peg$c23); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -4993,7 +5099,7 @@ const parser = /*
           s3 = peg$parseupperIdent();
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c24(s3);
+            s1 = peg$c25(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -5015,12 +5121,12 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c25) {
-        s1 = peg$c25;
+      if (input.substr(peg$currPos, 2) === peg$c26) {
+        s1 = peg$c26;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c26); }
+        if (peg$silentFails === 0) { peg$fail(peg$c27); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5028,7 +5134,7 @@ const parser = /*
           s3 = peg$parseid();
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c27(s3);
+            s1 = peg$c28(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -5050,12 +5156,12 @@ const parser = /*
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 11) === peg$c28) {
-        s1 = peg$c28;
+      if (input.substr(peg$currPos, 11) === peg$c29) {
+        s1 = peg$c29;
         peg$currPos += 11;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c29); }
+        if (peg$silentFails === 0) { peg$fail(peg$c30); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5090,12 +5196,12 @@ const parser = /*
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c30) {
-        s1 = peg$c30;
+      if (input.substr(peg$currPos, 6) === peg$c31) {
+        s1 = peg$c31;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c31); }
+        if (peg$silentFails === 0) { peg$fail(peg$c32); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5105,7 +5211,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c32(s3);
+              s1 = peg$c33(s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -5130,13 +5236,14 @@ const parser = /*
     function peg$parseInterface() {
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11;
 
+      peg$silentFails++;
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 9) === peg$c33) {
-        s1 = peg$c33;
+      if (input.substr(peg$currPos, 9) === peg$c35) {
+        s1 = peg$c35;
         peg$currPos += 9;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c34); }
+        if (peg$silentFails === 0) { peg$fail(peg$c36); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5150,11 +5257,11 @@ const parser = /*
             }
             if (s5 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 60) {
-                s6 = peg$c35;
+                s6 = peg$c37;
                 peg$currPos++;
               } else {
                 s6 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c36); }
+                if (peg$silentFails === 0) { peg$fail(peg$c38); }
               }
               if (s6 !== peg$FAILED) {
                 s7 = peg$parsewhiteSpace();
@@ -5170,11 +5277,11 @@ const parser = /*
                     }
                     if (s9 !== peg$FAILED) {
                       if (input.charCodeAt(peg$currPos) === 62) {
-                        s10 = peg$c37;
+                        s10 = peg$c39;
                         peg$currPos++;
                       } else {
                         s10 = peg$FAILED;
-                        if (peg$silentFails === 0) { peg$fail(peg$c38); }
+                        if (peg$silentFails === 0) { peg$fail(peg$c40); }
                       }
                       if (s10 !== peg$FAILED) {
                         s5 = [s5, s6, s7, s8, s9, s10];
@@ -5267,7 +5374,7 @@ const parser = /*
                   }
                   if (s7 !== peg$FAILED) {
                     peg$savedPos = s0;
-                    s1 = peg$c39(s3, s4, s6);
+                    s1 = peg$c41(s3, s4, s6);
                     s0 = s1;
                   } else {
                     peg$currPos = s0;
@@ -5296,6 +5403,11 @@ const parser = /*
       } else {
         peg$currPos = s0;
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c34); }
       }
 
       return s0;
@@ -5357,18 +5469,18 @@ const parser = /*
           s3 = peg$parselowerIdent();
           if (s3 === peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 42) {
-              s3 = peg$c40;
+              s3 = peg$c42;
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c41); }
+              if (peg$silentFails === 0) { peg$fail(peg$c43); }
             }
           }
           if (s3 !== peg$FAILED) {
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c42(s1, s2, s3);
+              s1 = peg$c44(s1, s2, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -5395,12 +5507,12 @@ const parser = /*
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c43) {
-        s2 = peg$c43;
+      if (input.substr(peg$currPos, 4) === peg$c45) {
+        s2 = peg$c45;
         peg$currPos += 4;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c44); }
+        if (peg$silentFails === 0) { peg$fail(peg$c46); }
       }
       if (s2 !== peg$FAILED) {
         s3 = peg$parsewhiteSpace();
@@ -5419,32 +5531,32 @@ const parser = /*
         s1 = null;
       }
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 7) === peg$c45) {
-          s2 = peg$c45;
+        if (input.substr(peg$currPos, 7) === peg$c47) {
+          s2 = peg$c47;
           peg$currPos += 7;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c46); }
+          if (peg$silentFails === 0) { peg$fail(peg$c48); }
         }
         if (s2 === peg$FAILED) {
-          if (input.substr(peg$currPos, 7) === peg$c47) {
-            s2 = peg$c47;
+          if (input.substr(peg$currPos, 7) === peg$c49) {
+            s2 = peg$c49;
             peg$currPos += 7;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c48); }
+            if (peg$silentFails === 0) { peg$fail(peg$c50); }
           }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$currPos;
           s4 = peg$parsewhiteSpace();
           if (s4 !== peg$FAILED) {
-            if (input.substr(peg$currPos, 6) === peg$c49) {
-              s5 = peg$c49;
+            if (input.substr(peg$currPos, 6) === peg$c51) {
+              s5 = peg$c51;
               peg$currPos += 6;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c50); }
+              if (peg$silentFails === 0) { peg$fail(peg$c52); }
             }
             if (s5 !== peg$FAILED) {
               s4 = [s4, s5];
@@ -5483,7 +5595,7 @@ const parser = /*
               s5 = peg$parseeolWhiteSpace();
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c51(s1, s2, s3, s4);
+                s1 = peg$c53(s1, s2, s3, s4);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -5513,12 +5625,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c52) {
-        s1 = peg$c52;
+      if (input.substr(peg$currPos, 4) === peg$c54) {
+        s1 = peg$c54;
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c53); }
+        if (peg$silentFails === 0) { peg$fail(peg$c55); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseeolWhiteSpace();
@@ -5581,7 +5693,7 @@ const parser = /*
             }
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c54(s3);
+              s1 = peg$c56(s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -5618,12 +5730,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c55) {
-        s1 = peg$c55;
+      if (input.substr(peg$currPos, 4) === peg$c57) {
+        s1 = peg$c57;
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c56); }
+        if (peg$silentFails === 0) { peg$fail(peg$c58); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5632,11 +5744,11 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 58) {
-            s3 = peg$c57;
+            s3 = peg$c59;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c58); }
+            if (peg$silentFails === 0) { peg$fail(peg$c60); }
           }
           if (s3 !== peg$FAILED) {
             s4 = peg$parsewhiteSpace();
@@ -5649,7 +5761,7 @@ const parser = /*
                 s6 = peg$parseeolWhiteSpace();
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c59(s5);
+                  s1 = peg$c61(s5);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -5683,12 +5795,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 10) === peg$c60) {
-        s1 = peg$c60;
+      if (input.substr(peg$currPos, 10) === peg$c62) {
+        s1 = peg$c62;
         peg$currPos += 10;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c61); }
+        if (peg$silentFails === 0) { peg$fail(peg$c63); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5697,11 +5809,11 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 58) {
-            s3 = peg$c57;
+            s3 = peg$c59;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c58); }
+            if (peg$silentFails === 0) { peg$fail(peg$c60); }
           }
           if (s3 !== peg$FAILED) {
             s4 = peg$parsewhiteSpace();
@@ -5714,7 +5826,7 @@ const parser = /*
                 s6 = peg$parseeolWhiteSpace();
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c62(s5);
+                  s1 = peg$c64(s5);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -5748,12 +5860,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 8) === peg$c63) {
-        s1 = peg$c63;
+      if (input.substr(peg$currPos, 8) === peg$c65) {
+        s1 = peg$c65;
         peg$currPos += 8;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c64); }
+        if (peg$silentFails === 0) { peg$fail(peg$c66); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -5782,12 +5894,12 @@ const parser = /*
               s5 = peg$currPos;
               s6 = peg$parsewhiteSpace();
               if (s6 !== peg$FAILED) {
-                if (input.substr(peg$currPos, 2) === peg$c21) {
-                  s7 = peg$c21;
+                if (input.substr(peg$currPos, 2) === peg$c22) {
+                  s7 = peg$c22;
                   peg$currPos += 2;
                 } else {
                   s7 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c22); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c23); }
                 }
                 if (s7 !== peg$FAILED) {
                   s8 = peg$parsewhiteSpace();
@@ -5876,7 +5988,7 @@ const parser = /*
                     }
                     if (s8 !== peg$FAILED) {
                       peg$savedPos = s0;
-                      s1 = peg$c65(s3, s4, s5, s7);
+                      s1 = peg$c67(s3, s4, s5, s7);
                       s0 = s1;
                     } else {
                       peg$currPos = s0;
@@ -5917,6 +6029,7 @@ const parser = /*
     function peg$parseParticleItem() {
       var s0;
 
+      peg$silentFails++;
       s0 = peg$parseParticleModality();
       if (s0 === peg$FAILED) {
         s0 = peg$parseParticleSlot();
@@ -5926,6 +6039,10 @@ const parser = /*
             s0 = peg$parseParticleHandle();
           }
         }
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        if (peg$silentFails === 0) { peg$fail(peg$c68); }
       }
 
       return s0;
@@ -5992,7 +6109,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c66(s1, s3);
+            s1 = peg$c69(s1, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -6017,11 +6134,11 @@ const parser = /*
       s1 = peg$parseParticleArgumentDirection();
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 63) {
-          s2 = peg$c67;
+          s2 = peg$c70;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c68); }
+          if (peg$silentFails === 0) { peg$fail(peg$c71); }
         }
         if (s2 === peg$FAILED) {
           s2 = null;
@@ -6036,7 +6153,7 @@ const parser = /*
                 s6 = peg$parseNameAndTagList();
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c69(s1, s2, s4, s6);
+                  s1 = peg$c72(s1, s2, s4, s6);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -6069,63 +6186,69 @@ const parser = /*
     function peg$parseParticleArgumentDirection() {
       var s0, s1;
 
-      if (input.substr(peg$currPos, 5) === peg$c70) {
-        s0 = peg$c70;
+      peg$silentFails++;
+      if (input.substr(peg$currPos, 5) === peg$c74) {
+        s0 = peg$c74;
         peg$currPos += 5;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c71); }
+        if (peg$silentFails === 0) { peg$fail(peg$c75); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 2) === peg$c21) {
-          s0 = peg$c21;
+        if (input.substr(peg$currPos, 2) === peg$c22) {
+          s0 = peg$c22;
           peg$currPos += 2;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c22); }
+          if (peg$silentFails === 0) { peg$fail(peg$c23); }
         }
         if (s0 === peg$FAILED) {
-          if (input.substr(peg$currPos, 3) === peg$c72) {
-            s0 = peg$c72;
+          if (input.substr(peg$currPos, 3) === peg$c76) {
+            s0 = peg$c76;
             peg$currPos += 3;
           } else {
             s0 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c73); }
+            if (peg$silentFails === 0) { peg$fail(peg$c77); }
           }
           if (s0 === peg$FAILED) {
-            if (input.substr(peg$currPos, 4) === peg$c74) {
-              s0 = peg$c74;
+            if (input.substr(peg$currPos, 4) === peg$c78) {
+              s0 = peg$c78;
               peg$currPos += 4;
             } else {
               s0 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c75); }
+              if (peg$silentFails === 0) { peg$fail(peg$c79); }
             }
             if (s0 === peg$FAILED) {
-              if (input.substr(peg$currPos, 8) === peg$c76) {
-                s0 = peg$c76;
+              if (input.substr(peg$currPos, 8) === peg$c80) {
+                s0 = peg$c80;
                 peg$currPos += 8;
               } else {
                 s0 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c77); }
+                if (peg$silentFails === 0) { peg$fail(peg$c81); }
               }
               if (s0 === peg$FAILED) {
                 s0 = peg$currPos;
-                if (input.substr(peg$currPos, 8) === peg$c78) {
-                  s1 = peg$c78;
+                if (input.substr(peg$currPos, 8) === peg$c82) {
+                  s1 = peg$c82;
                   peg$currPos += 8;
                 } else {
                   s1 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c79); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c83); }
                 }
                 if (s1 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c80();
+                  s1 = peg$c84();
                 }
                 s0 = s1;
               }
             }
           }
         }
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c73); }
       }
 
       return s0;
@@ -6162,25 +6285,25 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 91) {
-        s1 = peg$c81;
+        s1 = peg$c85;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c82); }
+        if (peg$silentFails === 0) { peg$fail(peg$c86); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseParticleArgumentType();
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 93) {
-            s3 = peg$c83;
+            s3 = peg$c87;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c84); }
+            if (peg$silentFails === 0) { peg$fail(peg$c88); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c85(s2);
+            s1 = peg$c89(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -6202,26 +6325,26 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 14) === peg$c86) {
-        s1 = peg$c86;
+      if (input.substr(peg$currPos, 14) === peg$c90) {
+        s1 = peg$c90;
         peg$currPos += 14;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c87); }
+        if (peg$silentFails === 0) { peg$fail(peg$c91); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseParticleArgumentType();
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 62) {
-            s3 = peg$c37;
+            s3 = peg$c39;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c38); }
+            if (peg$silentFails === 0) { peg$fail(peg$c40); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c88(s2);
+            s1 = peg$c92(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -6243,26 +6366,26 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 10) === peg$c89) {
-        s1 = peg$c89;
+      if (input.substr(peg$currPos, 10) === peg$c93) {
+        s1 = peg$c93;
         peg$currPos += 10;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c90); }
+        if (peg$silentFails === 0) { peg$fail(peg$c94); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseParticleArgumentType();
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 62) {
-            s3 = peg$c37;
+            s3 = peg$c39;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c38); }
+            if (peg$silentFails === 0) { peg$fail(peg$c40); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c91(s2);
+            s1 = peg$c95(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -6283,13 +6406,14 @@ const parser = /*
     function peg$parseTypeVariable() {
       var s0, s1, s2, s3, s4, s5, s6, s7;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 126) {
-        s1 = peg$c92;
+        s1 = peg$c97;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c93); }
+        if (peg$silentFails === 0) { peg$fail(peg$c98); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parselowerIdent();
@@ -6297,12 +6421,12 @@ const parser = /*
           s3 = peg$currPos;
           s4 = peg$parsewhiteSpace();
           if (s4 !== peg$FAILED) {
-            if (input.substr(peg$currPos, 4) === peg$c94) {
-              s5 = peg$c94;
+            if (input.substr(peg$currPos, 4) === peg$c99) {
+              s5 = peg$c99;
               peg$currPos += 4;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c95); }
+              if (peg$silentFails === 0) { peg$fail(peg$c100); }
             }
             if (s5 !== peg$FAILED) {
               s6 = peg$parsewhiteSpace();
@@ -6332,7 +6456,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c96(s2, s3);
+            s1 = peg$c101(s2, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -6346,6 +6470,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c96); }
+      }
 
       return s0;
     }
@@ -6354,23 +6483,23 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c97) {
-        s1 = peg$c97;
+      if (input.substr(peg$currPos, 4) === peg$c102) {
+        s1 = peg$c102;
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c98); }
+        if (peg$silentFails === 0) { peg$fail(peg$c103); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
         s3 = peg$parsewhiteSpace();
         if (s3 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 123) {
-            s4 = peg$c99;
+            s4 = peg$c104;
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c100); }
+            if (peg$silentFails === 0) { peg$fail(peg$c105); }
           }
           if (s4 !== peg$FAILED) {
             s5 = peg$currPos;
@@ -6379,11 +6508,11 @@ const parser = /*
               s7 = [];
               s8 = peg$currPos;
               if (input.charCodeAt(peg$currPos) === 44) {
-                s9 = peg$c101;
+                s9 = peg$c106;
                 peg$currPos++;
               } else {
                 s9 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                if (peg$silentFails === 0) { peg$fail(peg$c107); }
               }
               if (s9 !== peg$FAILED) {
                 s10 = peg$parsewhiteSpace();
@@ -6408,11 +6537,11 @@ const parser = /*
                 s7.push(s8);
                 s8 = peg$currPos;
                 if (input.charCodeAt(peg$currPos) === 44) {
-                  s9 = peg$c101;
+                  s9 = peg$c106;
                   peg$currPos++;
                 } else {
                   s9 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c107); }
                 }
                 if (s9 !== peg$FAILED) {
                   s10 = peg$parsewhiteSpace();
@@ -6450,11 +6579,11 @@ const parser = /*
             }
             if (s5 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 125) {
-                s6 = peg$c103;
+                s6 = peg$c108;
                 peg$currPos++;
               } else {
                 s6 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c104); }
+                if (peg$silentFails === 0) { peg$fail(peg$c109); }
               }
               if (s6 !== peg$FAILED) {
                 s3 = [s3, s4, s5, s6];
@@ -6480,7 +6609,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c105(s2);
+          s1 = peg$c110(s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -6506,11 +6635,11 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 58) {
-            s3 = peg$c57;
+            s3 = peg$c59;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c58); }
+            if (peg$silentFails === 0) { peg$fail(peg$c60); }
           }
           if (s3 !== peg$FAILED) {
             s4 = peg$parsewhiteSpace();
@@ -6521,7 +6650,7 @@ const parser = /*
               s5 = peg$parselowerIdent();
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c106(s1, s5);
+                s1 = peg$c111(s1, s5);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -6554,7 +6683,7 @@ const parser = /*
       s1 = peg$parseupperIdent();
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c107(s1);
+        s1 = peg$c112(s1);
       }
       s0 = s1;
 
@@ -6570,11 +6699,11 @@ const parser = /*
         s2 = [];
         s3 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 44) {
-          s4 = peg$c101;
+          s4 = peg$c106;
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c102); }
+          if (peg$silentFails === 0) { peg$fail(peg$c107); }
         }
         if (s4 !== peg$FAILED) {
           s5 = peg$parsewhiteSpace();
@@ -6599,11 +6728,11 @@ const parser = /*
           s2.push(s3);
           s3 = peg$currPos;
           if (input.charCodeAt(peg$currPos) === 44) {
-            s4 = peg$c101;
+            s4 = peg$c106;
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c102); }
+            if (peg$silentFails === 0) { peg$fail(peg$c107); }
           }
           if (s4 !== peg$FAILED) {
             s5 = peg$parsewhiteSpace();
@@ -6627,7 +6756,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c108(s1, s2);
+          s1 = peg$c113(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -6645,20 +6774,20 @@ const parser = /*
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 10) === peg$c109) {
-        s1 = peg$c109;
+      if (input.substr(peg$currPos, 10) === peg$c114) {
+        s1 = peg$c114;
         peg$currPos += 10;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c110); }
+        if (peg$silentFails === 0) { peg$fail(peg$c115); }
       }
       if (s1 === peg$FAILED) {
-        if (input.substr(peg$currPos, 8) === peg$c111) {
-          s1 = peg$c111;
+        if (input.substr(peg$currPos, 8) === peg$c116) {
+          s1 = peg$c116;
           peg$currPos += 8;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c112); }
+          if (peg$silentFails === 0) { peg$fail(peg$c117); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -6669,7 +6798,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c113(s3);
+              s1 = peg$c118(s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -6694,68 +6823,68 @@ const parser = /*
     function peg$parseModality() {
       var s0;
 
-      if (input.substr(peg$currPos, 9) === peg$c114) {
-        s0 = peg$c114;
+      if (input.substr(peg$currPos, 9) === peg$c119) {
+        s0 = peg$c119;
         peg$currPos += 9;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c115); }
+        if (peg$silentFails === 0) { peg$fail(peg$c120); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 3) === peg$c116) {
-          s0 = peg$c116;
+        if (input.substr(peg$currPos, 3) === peg$c121) {
+          s0 = peg$c121;
           peg$currPos += 3;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c117); }
+          if (peg$silentFails === 0) { peg$fail(peg$c122); }
         }
         if (s0 === peg$FAILED) {
-          if (input.substr(peg$currPos, 2) === peg$c118) {
-            s0 = peg$c118;
+          if (input.substr(peg$currPos, 2) === peg$c123) {
+            s0 = peg$c123;
             peg$currPos += 2;
           } else {
             s0 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c119); }
+            if (peg$silentFails === 0) { peg$fail(peg$c124); }
           }
           if (s0 === peg$FAILED) {
-            if (input.substr(peg$currPos, 5) === peg$c120) {
-              s0 = peg$c120;
+            if (input.substr(peg$currPos, 5) === peg$c125) {
+              s0 = peg$c125;
               peg$currPos += 5;
             } else {
               s0 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c121); }
+              if (peg$silentFails === 0) { peg$fail(peg$c126); }
             }
             if (s0 === peg$FAILED) {
-              if (input.substr(peg$currPos, 14) === peg$c122) {
-                s0 = peg$c122;
+              if (input.substr(peg$currPos, 14) === peg$c127) {
+                s0 = peg$c127;
                 peg$currPos += 14;
               } else {
                 s0 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c123); }
+                if (peg$silentFails === 0) { peg$fail(peg$c128); }
               }
               if (s0 === peg$FAILED) {
-                if (input.substr(peg$currPos, 8) === peg$c124) {
-                  s0 = peg$c124;
+                if (input.substr(peg$currPos, 8) === peg$c129) {
+                  s0 = peg$c129;
                   peg$currPos += 8;
                 } else {
                   s0 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c125); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c130); }
                 }
                 if (s0 === peg$FAILED) {
-                  if (input.substr(peg$currPos, 7) === peg$c126) {
-                    s0 = peg$c126;
+                  if (input.substr(peg$currPos, 7) === peg$c131) {
+                    s0 = peg$c131;
                     peg$currPos += 7;
                   } else {
                     s0 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c127); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c132); }
                   }
                   if (s0 === peg$FAILED) {
-                    if (input.substr(peg$currPos, 10) === peg$c128) {
-                      s0 = peg$c128;
+                    if (input.substr(peg$currPos, 10) === peg$c133) {
+                      s0 = peg$c133;
                       peg$currPos += 10;
                     } else {
                       s0 = peg$FAILED;
-                      if (peg$silentFails === 0) { peg$fail(peg$c129); }
+                      if (peg$silentFails === 0) { peg$fail(peg$c134); }
                     }
                   }
                 }
@@ -6773,12 +6902,12 @@ const parser = /*
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c43) {
-        s2 = peg$c43;
+      if (input.substr(peg$currPos, 4) === peg$c45) {
+        s2 = peg$c45;
         peg$currPos += 4;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c44); }
+        if (peg$silentFails === 0) { peg$fail(peg$c46); }
       }
       if (s2 !== peg$FAILED) {
         s3 = peg$parsewhiteSpace();
@@ -6797,23 +6926,23 @@ const parser = /*
         s1 = null;
       }
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 7) === peg$c45) {
-          s2 = peg$c45;
+        if (input.substr(peg$currPos, 7) === peg$c47) {
+          s2 = peg$c47;
           peg$currPos += 7;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c46); }
+          if (peg$silentFails === 0) { peg$fail(peg$c48); }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$parsewhiteSpace();
           if (s3 !== peg$FAILED) {
             s4 = peg$currPos;
-            if (input.substr(peg$currPos, 6) === peg$c49) {
-              s5 = peg$c49;
+            if (input.substr(peg$currPos, 6) === peg$c51) {
+              s5 = peg$c51;
               peg$currPos += 6;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c50); }
+              if (peg$silentFails === 0) { peg$fail(peg$c52); }
             }
             if (s5 !== peg$FAILED) {
               s6 = peg$parsewhiteSpace();
@@ -6908,7 +7037,7 @@ const parser = /*
                     }
                     if (s8 !== peg$FAILED) {
                       peg$savedPos = s0;
-                      s1 = peg$c130(s1, s4, s5, s6, s8);
+                      s1 = peg$c135(s1, s4, s5, s6, s8);
                       s0 = s1;
                     } else {
                       peg$currPos = s0;
@@ -6961,46 +7090,46 @@ const parser = /*
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 10) === peg$c131) {
-        s1 = peg$c131;
+      if (input.substr(peg$currPos, 10) === peg$c136) {
+        s1 = peg$c136;
         peg$currPos += 10;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c132); }
+        if (peg$silentFails === 0) { peg$fail(peg$c137); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
         if (s2 !== peg$FAILED) {
-          if (input.substr(peg$currPos, 10) === peg$c133) {
-            s3 = peg$c133;
+          if (input.substr(peg$currPos, 10) === peg$c138) {
+            s3 = peg$c138;
             peg$currPos += 10;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c134); }
+            if (peg$silentFails === 0) { peg$fail(peg$c139); }
           }
           if (s3 === peg$FAILED) {
-            if (input.substr(peg$currPos, 3) === peg$c135) {
-              s3 = peg$c135;
+            if (input.substr(peg$currPos, 3) === peg$c140) {
+              s3 = peg$c140;
               peg$currPos += 3;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c136); }
+              if (peg$silentFails === 0) { peg$fail(peg$c141); }
             }
             if (s3 === peg$FAILED) {
-              if (input.substr(peg$currPos, 6) === peg$c137) {
-                s3 = peg$c137;
+              if (input.substr(peg$currPos, 6) === peg$c142) {
+                s3 = peg$c142;
                 peg$currPos += 6;
               } else {
                 s3 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c138); }
+                if (peg$silentFails === 0) { peg$fail(peg$c143); }
               }
               if (s3 === peg$FAILED) {
-                if (input.substr(peg$currPos, 5) === peg$c139) {
-                  s3 = peg$c139;
+                if (input.substr(peg$currPos, 5) === peg$c144) {
+                  s3 = peg$c144;
                   peg$currPos += 5;
                 } else {
                   s3 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c140); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c145); }
                 }
               }
             }
@@ -7009,7 +7138,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c141(s3);
+              s1 = peg$c146(s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -7036,12 +7165,12 @@ const parser = /*
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c43) {
-        s2 = peg$c43;
+      if (input.substr(peg$currPos, 4) === peg$c45) {
+        s2 = peg$c45;
         peg$currPos += 4;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c44); }
+        if (peg$silentFails === 0) { peg$fail(peg$c46); }
       }
       if (s2 !== peg$FAILED) {
         s3 = peg$parsewhiteSpace();
@@ -7060,23 +7189,23 @@ const parser = /*
         s1 = null;
       }
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 7) === peg$c47) {
-          s2 = peg$c47;
+        if (input.substr(peg$currPos, 7) === peg$c49) {
+          s2 = peg$c49;
           peg$currPos += 7;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c48); }
+          if (peg$silentFails === 0) { peg$fail(peg$c50); }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$parsewhiteSpace();
           if (s3 !== peg$FAILED) {
             s4 = peg$currPos;
-            if (input.substr(peg$currPos, 6) === peg$c49) {
-              s5 = peg$c49;
+            if (input.substr(peg$currPos, 6) === peg$c51) {
+              s5 = peg$c51;
               peg$currPos += 6;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c50); }
+              if (peg$silentFails === 0) { peg$fail(peg$c52); }
             }
             if (s5 !== peg$FAILED) {
               s6 = peg$parsewhiteSpace();
@@ -7171,7 +7300,7 @@ const parser = /*
                     }
                     if (s8 !== peg$FAILED) {
                       peg$savedPos = s0;
-                      s1 = peg$c142(s1, s4, s5, s6, s8);
+                      s1 = peg$c147(s1, s4, s5, s6, s8);
                       s0 = s1;
                     } else {
                       peg$currPos = s0;
@@ -7224,12 +7353,12 @@ const parser = /*
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c143) {
-        s1 = peg$c143;
+      if (input.substr(peg$currPos, 6) === peg$c148) {
+        s1 = peg$c148;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c144); }
+        if (peg$silentFails === 0) { peg$fail(peg$c149); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -7239,7 +7368,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c145(s3);
+              s1 = peg$c150(s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -7265,12 +7394,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 11) === peg$c28) {
-        s1 = peg$c28;
+      if (input.substr(peg$currPos, 11) === peg$c29) {
+        s1 = peg$c29;
         peg$currPos += 11;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c29); }
+        if (peg$silentFails === 0) { peg$fail(peg$c30); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -7336,7 +7465,7 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c146(s3, s5);
+                s1 = peg$c151(s3, s5);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -7375,7 +7504,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c147(s1, s3);
+              s1 = peg$c152(s1, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -7401,12 +7530,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c148) {
-        s1 = peg$c148;
+      if (input.substr(peg$currPos, 6) === peg$c153) {
+        s1 = peg$c153;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c149); }
+        if (peg$silentFails === 0) { peg$fail(peg$c154); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -7502,7 +7631,7 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c150(s2, s3, s5);
+                s1 = peg$c155(s2, s3, s5);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -7558,12 +7687,12 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c151) {
-        s1 = peg$c151;
+      if (input.substr(peg$currPos, 2) === peg$c156) {
+        s1 = peg$c156;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c152); }
+        if (peg$silentFails === 0) { peg$fail(peg$c157); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -7571,7 +7700,7 @@ const parser = /*
           s3 = peg$parselowerIdent();
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c153(s3);
+            s1 = peg$c158(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -7593,12 +7722,12 @@ const parser = /*
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c151) {
-        s1 = peg$c151;
+      if (input.substr(peg$currPos, 2) === peg$c156) {
+        s1 = peg$c156;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c152); }
+        if (peg$silentFails === 0) { peg$fail(peg$c157); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -7606,7 +7735,7 @@ const parser = /*
           s3 = peg$parseupperIdent();
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c153(s3);
+            s1 = peg$c158(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -7631,11 +7760,11 @@ const parser = /*
       s1 = peg$parseParticleRef();
       if (s1 === peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 42) {
-          s1 = peg$c40;
+          s1 = peg$c42;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c41); }
+          if (peg$silentFails === 0) { peg$fail(peg$c43); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -7713,7 +7842,7 @@ const parser = /*
             }
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c154(s1, s2, s4);
+              s1 = peg$c159(s1, s2, s4);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -7753,11 +7882,11 @@ const parser = /*
       s1 = peg$parselowerIdent();
       if (s1 === peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 42) {
-          s1 = peg$c40;
+          s1 = peg$c42;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c41); }
+          if (peg$silentFails === 0) { peg$fail(peg$c43); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -7839,7 +7968,7 @@ const parser = /*
                 }
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c155(s1, s3, s4, s6);
+                  s1 = peg$c160(s1, s3, s4, s6);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -7892,7 +8021,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c156(s1, s3);
+            s1 = peg$c161(s1, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -7994,7 +8123,7 @@ const parser = /*
                 }
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c157(s1, s3, s4, s6);
+                  s1 = peg$c162(s1, s3, s4, s6);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -8036,7 +8165,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c158(s1, s2);
+          s1 = peg$c163(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8053,20 +8182,20 @@ const parser = /*
     function peg$parseSlotDirection() {
       var s0;
 
-      if (input.substr(peg$currPos, 7) === peg$c47) {
-        s0 = peg$c47;
+      if (input.substr(peg$currPos, 7) === peg$c49) {
+        s0 = peg$c49;
         peg$currPos += 7;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c48); }
+        if (peg$silentFails === 0) { peg$fail(peg$c50); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 7) === peg$c45) {
-          s0 = peg$c45;
+        if (input.substr(peg$currPos, 7) === peg$c47) {
+          s0 = peg$c47;
           peg$currPos += 7;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c46); }
+          if (peg$silentFails === 0) { peg$fail(peg$c48); }
         }
       }
 
@@ -8090,7 +8219,7 @@ const parser = /*
                 s6 = peg$parseeolWhiteSpace();
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c159(s1, s3, s5);
+                  s1 = peg$c164(s1, s3, s5);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -8124,12 +8253,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c160) {
-        s1 = peg$c160;
+      if (input.substr(peg$currPos, 6) === peg$c165) {
+        s1 = peg$c165;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c161); }
+        if (peg$silentFails === 0) { peg$fail(peg$c166); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -8144,12 +8273,12 @@ const parser = /*
                 s7 = peg$currPos;
                 s8 = peg$parseSameIndent();
                 if (s8 !== peg$FAILED) {
-                  if (input.substr(peg$currPos, 6) === peg$c162) {
-                    s9 = peg$c162;
+                  if (input.substr(peg$currPos, 6) === peg$c167) {
+                    s9 = peg$c167;
                     peg$currPos += 6;
                   } else {
                     s9 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c163); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c168); }
                   }
                   if (s9 !== peg$FAILED) {
                     s10 = [];
@@ -8227,7 +8356,7 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c164(s3, s5);
+                s1 = peg$c169(s3, s5);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -8256,44 +8385,44 @@ const parser = /*
     function peg$parseDirection() {
       var s0;
 
-      if (input.substr(peg$currPos, 2) === peg$c165) {
-        s0 = peg$c165;
+      if (input.substr(peg$currPos, 2) === peg$c170) {
+        s0 = peg$c170;
         peg$currPos += 2;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c166); }
+        if (peg$silentFails === 0) { peg$fail(peg$c171); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 2) === peg$c167) {
-          s0 = peg$c167;
+        if (input.substr(peg$currPos, 2) === peg$c172) {
+          s0 = peg$c172;
           peg$currPos += 2;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c168); }
+          if (peg$silentFails === 0) { peg$fail(peg$c173); }
         }
         if (s0 === peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 61) {
-            s0 = peg$c169;
+            s0 = peg$c174;
             peg$currPos++;
           } else {
             s0 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c170); }
+            if (peg$silentFails === 0) { peg$fail(peg$c175); }
           }
           if (s0 === peg$FAILED) {
-            if (input.substr(peg$currPos, 7) === peg$c45) {
-              s0 = peg$c45;
+            if (input.substr(peg$currPos, 7) === peg$c47) {
+              s0 = peg$c47;
               peg$currPos += 7;
             } else {
               s0 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c46); }
+              if (peg$silentFails === 0) { peg$fail(peg$c48); }
             }
             if (s0 === peg$FAILED) {
-              if (input.substr(peg$currPos, 7) === peg$c47) {
-                s0 = peg$c47;
+              if (input.substr(peg$currPos, 7) === peg$c49) {
+                s0 = peg$c49;
                 peg$currPos += 7;
               } else {
                 s0 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c48); }
+                if (peg$silentFails === 0) { peg$fail(peg$c50); }
               }
             }
           }
@@ -8332,7 +8461,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c171(s1, s2);
+          s1 = peg$c176(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8353,7 +8482,7 @@ const parser = /*
       s1 = peg$parseTagList();
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c172(s1);
+        s1 = peg$c177(s1);
       }
       s0 = s1;
 
@@ -8372,7 +8501,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c173(s1, s2);
+          s1 = peg$c178(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8398,7 +8527,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c174(s1, s2);
+          s1 = peg$c179(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8417,11 +8546,11 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 46) {
-        s1 = peg$c175;
+        s1 = peg$c180;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c176); }
+        if (peg$silentFails === 0) { peg$fail(peg$c181); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parselowerIdent();
@@ -8452,7 +8581,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c177(s2, s3);
+            s1 = peg$c182(s2, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -8474,51 +8603,51 @@ const parser = /*
       var s0;
 
       if (input.charCodeAt(peg$currPos) === 63) {
-        s0 = peg$c67;
+        s0 = peg$c70;
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c68); }
+        if (peg$silentFails === 0) { peg$fail(peg$c71); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 3) === peg$c178) {
-          s0 = peg$c178;
+        if (input.substr(peg$currPos, 3) === peg$c183) {
+          s0 = peg$c183;
           peg$currPos += 3;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c179); }
+          if (peg$silentFails === 0) { peg$fail(peg$c184); }
         }
         if (s0 === peg$FAILED) {
-          if (input.substr(peg$currPos, 3) === peg$c180) {
-            s0 = peg$c180;
+          if (input.substr(peg$currPos, 3) === peg$c185) {
+            s0 = peg$c185;
             peg$currPos += 3;
           } else {
             s0 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c181); }
+            if (peg$silentFails === 0) { peg$fail(peg$c186); }
           }
           if (s0 === peg$FAILED) {
-            if (input.substr(peg$currPos, 6) === peg$c182) {
-              s0 = peg$c182;
+            if (input.substr(peg$currPos, 6) === peg$c187) {
+              s0 = peg$c187;
               peg$currPos += 6;
             } else {
               s0 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c183); }
+              if (peg$silentFails === 0) { peg$fail(peg$c188); }
             }
             if (s0 === peg$FAILED) {
-              if (input.substr(peg$currPos, 4) === peg$c184) {
-                s0 = peg$c184;
+              if (input.substr(peg$currPos, 4) === peg$c189) {
+                s0 = peg$c189;
                 peg$currPos += 4;
               } else {
                 s0 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c185); }
+                if (peg$silentFails === 0) { peg$fail(peg$c190); }
               }
               if (s0 === peg$FAILED) {
-                if (input.substr(peg$currPos, 5) === peg$c186) {
-                  s0 = peg$c186;
+                if (input.substr(peg$currPos, 5) === peg$c191) {
+                  s0 = peg$c191;
                   peg$currPos += 5;
                 } else {
                   s0 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c187); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c192); }
                 }
               }
             }
@@ -8576,7 +8705,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c188(s1, s2, s3);
+              s1 = peg$c193(s1, s2, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -8602,12 +8731,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 7) === peg$c189) {
-        s1 = peg$c189;
+      if (input.substr(peg$currPos, 7) === peg$c194) {
+        s1 = peg$c194;
         peg$currPos += 7;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c190); }
+        if (peg$silentFails === 0) { peg$fail(peg$c195); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseeolWhiteSpace();
@@ -8671,7 +8800,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c191(s3);
+            s1 = peg$c196(s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -8693,12 +8822,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c143) {
-        s1 = peg$c143;
+      if (input.substr(peg$currPos, 6) === peg$c148) {
+        s1 = peg$c148;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c144); }
+        if (peg$silentFails === 0) { peg$fail(peg$c149); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -8750,7 +8879,7 @@ const parser = /*
               s5 = peg$parseeolWhiteSpace();
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c192(s2, s3, s4);
+                s1 = peg$c197(s2, s3, s4);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -8781,42 +8910,42 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 35) {
-        s1 = peg$c193;
+        s1 = peg$c198;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c194); }
+        if (peg$silentFails === 0) { peg$fail(peg$c199); }
       }
       if (s1 !== peg$FAILED) {
-        if (peg$c195.test(input.charAt(peg$currPos))) {
+        if (peg$c200.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c196); }
+          if (peg$silentFails === 0) { peg$fail(peg$c201); }
         }
         if (s2 !== peg$FAILED) {
           s3 = [];
-          if (peg$c197.test(input.charAt(peg$currPos))) {
+          if (peg$c202.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c198); }
+            if (peg$silentFails === 0) { peg$fail(peg$c203); }
           }
           while (s4 !== peg$FAILED) {
             s3.push(s4);
-            if (peg$c197.test(input.charAt(peg$currPos))) {
+            if (peg$c202.test(input.charAt(peg$currPos))) {
               s4 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s4 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c198); }
+              if (peg$silentFails === 0) { peg$fail(peg$c203); }
             }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c199();
+            s1 = peg$c204();
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -8860,7 +8989,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c200(s1, s2);
+          s1 = peg$c205(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8877,44 +9006,45 @@ const parser = /*
     function peg$parseVerb() {
       var s0, s1, s2, s3, s4;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 38) {
-        s1 = peg$c201;
+        s1 = peg$c207;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c202); }
+        if (peg$silentFails === 0) { peg$fail(peg$c208); }
       }
       if (s1 !== peg$FAILED) {
-        if (peg$c195.test(input.charAt(peg$currPos))) {
+        if (peg$c200.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c196); }
+          if (peg$silentFails === 0) { peg$fail(peg$c201); }
         }
         if (s2 !== peg$FAILED) {
           s3 = [];
-          if (peg$c197.test(input.charAt(peg$currPos))) {
+          if (peg$c202.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c198); }
+            if (peg$silentFails === 0) { peg$fail(peg$c203); }
           }
           while (s4 !== peg$FAILED) {
             s3.push(s4);
-            if (peg$c197.test(input.charAt(peg$currPos))) {
+            if (peg$c202.test(input.charAt(peg$currPos))) {
               s4 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s4 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c198); }
+              if (peg$silentFails === 0) { peg$fail(peg$c203); }
             }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c199();
+            s1 = peg$c204();
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -8927,6 +9057,11 @@ const parser = /*
       } else {
         peg$currPos = s0;
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c206); }
       }
 
       return s0;
@@ -8958,7 +9093,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c200(s1, s2);
+          s1 = peg$c205(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -8981,7 +9116,7 @@ const parser = /*
         s2 = peg$parseTagList();
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c203(s2);
+          s1 = peg$c209(s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -9021,7 +9156,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c204(s1, s2);
+          s1 = peg$c210(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -9038,7 +9173,7 @@ const parser = /*
           s2 = peg$parselowerIdent();
           if (s2 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c205(s2);
+            s1 = peg$c211(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -9055,7 +9190,7 @@ const parser = /*
             s2 = peg$parseTagList();
             if (s2 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c206(s2);
+              s1 = peg$c212(s2);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -9078,7 +9213,7 @@ const parser = /*
       s1 = peg$parseupperIdent();
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
-        s1 = peg$c207(s1);
+        s1 = peg$c213(s1);
       }
       s0 = s1;
       if (s0 === peg$FAILED) {
@@ -9086,7 +9221,7 @@ const parser = /*
         s1 = peg$parseVerb();
         if (s1 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c208(s1);
+          s1 = peg$c214(s1);
         }
         s0 = s1;
       }
@@ -9106,7 +9241,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c209(s1, s2);
+          s1 = peg$c215(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -9126,7 +9261,7 @@ const parser = /*
           }
           if (s2 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c210(s1, s2);
+            s1 = peg$c216(s1, s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -9141,7 +9276,7 @@ const parser = /*
           s1 = peg$parseTagList();
           if (s1 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c211(s1);
+            s1 = peg$c217(s1);
           }
           s0 = s1;
         }
@@ -9154,12 +9289,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4) === peg$c212) {
-        s1 = peg$c212;
+      if (input.substr(peg$currPos, 4) === peg$c218) {
+        s1 = peg$c218;
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c213); }
+        if (peg$silentFails === 0) { peg$fail(peg$c219); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -9203,7 +9338,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c214(s2, s3);
+              s1 = peg$c220(s2, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -9234,11 +9369,11 @@ const parser = /*
       s3 = peg$parseupperIdent();
       if (s3 === peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 42) {
-          s3 = peg$c40;
+          s3 = peg$c42;
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c41); }
+          if (peg$silentFails === 0) { peg$fail(peg$c43); }
         }
       }
       if (s3 !== peg$FAILED) {
@@ -9261,11 +9396,11 @@ const parser = /*
           s3 = peg$parseupperIdent();
           if (s3 === peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 42) {
-              s3 = peg$c40;
+              s3 = peg$c42;
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c41); }
+              if (peg$silentFails === 0) { peg$fail(peg$c43); }
             }
           }
           if (s3 !== peg$FAILED) {
@@ -9287,11 +9422,11 @@ const parser = /*
       }
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 123) {
-          s2 = peg$c99;
+          s2 = peg$c104;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c100); }
+          if (peg$silentFails === 0) { peg$fail(peg$c105); }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$currPos;
@@ -9300,11 +9435,11 @@ const parser = /*
             s5 = [];
             s6 = peg$currPos;
             if (input.charCodeAt(peg$currPos) === 44) {
-              s7 = peg$c101;
+              s7 = peg$c106;
               peg$currPos++;
             } else {
               s7 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c102); }
+              if (peg$silentFails === 0) { peg$fail(peg$c107); }
             }
             if (s7 !== peg$FAILED) {
               s8 = peg$parsewhiteSpace();
@@ -9329,11 +9464,11 @@ const parser = /*
               s5.push(s6);
               s6 = peg$currPos;
               if (input.charCodeAt(peg$currPos) === 44) {
-                s7 = peg$c101;
+                s7 = peg$c106;
                 peg$currPos++;
               } else {
                 s7 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                if (peg$silentFails === 0) { peg$fail(peg$c107); }
               }
               if (s7 !== peg$FAILED) {
                 s8 = peg$parsewhiteSpace();
@@ -9371,15 +9506,15 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 125) {
-              s4 = peg$c103;
+              s4 = peg$c108;
               peg$currPos++;
             } else {
               s4 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c104); }
+              if (peg$silentFails === 0) { peg$fail(peg$c109); }
             }
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c215(s1, s3);
+              s1 = peg$c221(s1, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -9427,7 +9562,7 @@ const parser = /*
         s2 = peg$parsefieldName();
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c216(s1, s2);
+          s1 = peg$c222(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -9445,12 +9580,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6) === peg$c217) {
-        s1 = peg$c217;
+      if (input.substr(peg$currPos, 6) === peg$c223) {
+        s1 = peg$c223;
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c218); }
+        if (peg$silentFails === 0) { peg$fail(peg$c224); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
@@ -9458,11 +9593,11 @@ const parser = /*
         s4 = peg$parsewhiteSpace();
         if (s4 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 42) {
-            s5 = peg$c40;
+            s5 = peg$c42;
             peg$currPos++;
           } else {
             s5 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c41); }
+            if (peg$silentFails === 0) { peg$fail(peg$c43); }
           }
           if (s5 === peg$FAILED) {
             s5 = peg$parseupperIdent();
@@ -9485,11 +9620,11 @@ const parser = /*
             s4 = peg$parsewhiteSpace();
             if (s4 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 42) {
-                s5 = peg$c40;
+                s5 = peg$c42;
                 peg$currPos++;
               } else {
                 s5 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c41); }
+                if (peg$silentFails === 0) { peg$fail(peg$c43); }
               }
               if (s5 === peg$FAILED) {
                 s5 = peg$parseupperIdent();
@@ -9516,7 +9651,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c219(s2, s3);
+            s1 = peg$c225(s2, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -9538,12 +9673,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5) === peg$c220) {
-        s1 = peg$c220;
+      if (input.substr(peg$currPos, 5) === peg$c226) {
+        s1 = peg$c226;
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c221); }
+        if (peg$silentFails === 0) { peg$fail(peg$c227); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -9609,7 +9744,7 @@ const parser = /*
                   }
                   if (s7 !== peg$FAILED) {
                     peg$savedPos = s0;
-                    s1 = peg$c222(s3, s5, s7);
+                    s1 = peg$c228(s3, s5, s7);
                     s0 = s1;
                   } else {
                     peg$currPos = s0;
@@ -9704,7 +9839,7 @@ const parser = /*
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c223(s1, s3);
+            s1 = peg$c229(s1, s3);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -9728,12 +9863,12 @@ const parser = /*
       s0 = peg$currPos;
       s1 = peg$parsewhiteSpace();
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 7) === peg$c224) {
-          s2 = peg$c224;
+        if (input.substr(peg$currPos, 7) === peg$c230) {
+          s2 = peg$c230;
           peg$currPos += 7;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c225); }
+          if (peg$silentFails === 0) { peg$fail(peg$c231); }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$parsewhiteSpace();
@@ -9748,11 +9883,11 @@ const parser = /*
               }
               if (s7 !== peg$FAILED) {
                 if (input.charCodeAt(peg$currPos) === 44) {
-                  s8 = peg$c101;
+                  s8 = peg$c106;
                   peg$currPos++;
                 } else {
                   s8 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c107); }
                 }
                 if (s8 !== peg$FAILED) {
                   s9 = peg$parsewhiteSpace();
@@ -9786,11 +9921,11 @@ const parser = /*
                 }
                 if (s7 !== peg$FAILED) {
                   if (input.charCodeAt(peg$currPos) === 44) {
-                    s8 = peg$c101;
+                    s8 = peg$c106;
                     peg$currPos++;
                   } else {
                     s8 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c107); }
                   }
                   if (s8 !== peg$FAILED) {
                     s9 = peg$parsewhiteSpace();
@@ -9818,7 +9953,7 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c226(s4, s5);
+                s1 = peg$c232(s4, s5);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -9868,7 +10003,7 @@ const parser = /*
             s4 = peg$parseeolWhiteSpace();
             if (s4 !== peg$FAILED) {
               peg$savedPos = s0;
-              s1 = peg$c227(s1, s3);
+              s1 = peg$c233(s1, s3);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -9915,11 +10050,11 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 91) {
-        s1 = peg$c81;
+        s1 = peg$c85;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c82); }
+        if (peg$silentFails === 0) { peg$fail(peg$c86); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
@@ -9939,15 +10074,15 @@ const parser = /*
             }
             if (s4 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 93) {
-                s5 = peg$c83;
+                s5 = peg$c87;
                 peg$currPos++;
               } else {
                 s5 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c84); }
+                if (peg$silentFails === 0) { peg$fail(peg$c88); }
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c228(s3);
+                s1 = peg$c234(s3);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -9977,12 +10112,12 @@ const parser = /*
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 10) === peg$c89) {
-        s1 = peg$c89;
+      if (input.substr(peg$currPos, 10) === peg$c93) {
+        s1 = peg$c93;
         peg$currPos += 10;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c90); }
+        if (peg$silentFails === 0) { peg$fail(peg$c94); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
@@ -10005,15 +10140,15 @@ const parser = /*
             }
             if (s4 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 62) {
-                s5 = peg$c37;
+                s5 = peg$c39;
                 peg$currPos++;
               } else {
                 s5 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c38); }
+                if (peg$silentFails === 0) { peg$fail(peg$c40); }
               }
               if (s5 !== peg$FAILED) {
                 peg$savedPos = s0;
-                s1 = peg$c229(s3);
+                s1 = peg$c235(s3);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -10042,52 +10177,52 @@ const parser = /*
     function peg$parseSchemaPrimitiveType() {
       var s0;
 
-      if (input.substr(peg$currPos, 4) === peg$c230) {
-        s0 = peg$c230;
+      if (input.substr(peg$currPos, 4) === peg$c236) {
+        s0 = peg$c236;
         peg$currPos += 4;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c231); }
+        if (peg$silentFails === 0) { peg$fail(peg$c237); }
       }
       if (s0 === peg$FAILED) {
-        if (input.substr(peg$currPos, 3) === peg$c232) {
-          s0 = peg$c232;
+        if (input.substr(peg$currPos, 3) === peg$c238) {
+          s0 = peg$c238;
           peg$currPos += 3;
         } else {
           s0 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c233); }
+          if (peg$silentFails === 0) { peg$fail(peg$c239); }
         }
         if (s0 === peg$FAILED) {
-          if (input.substr(peg$currPos, 6) === peg$c234) {
-            s0 = peg$c234;
+          if (input.substr(peg$currPos, 6) === peg$c240) {
+            s0 = peg$c240;
             peg$currPos += 6;
           } else {
             s0 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c235); }
+            if (peg$silentFails === 0) { peg$fail(peg$c241); }
           }
           if (s0 === peg$FAILED) {
-            if (input.substr(peg$currPos, 7) === peg$c236) {
-              s0 = peg$c236;
+            if (input.substr(peg$currPos, 7) === peg$c242) {
+              s0 = peg$c242;
               peg$currPos += 7;
             } else {
               s0 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c237); }
+              if (peg$silentFails === 0) { peg$fail(peg$c243); }
             }
             if (s0 === peg$FAILED) {
-              if (input.substr(peg$currPos, 5) === peg$c238) {
-                s0 = peg$c238;
+              if (input.substr(peg$currPos, 5) === peg$c244) {
+                s0 = peg$c244;
                 peg$currPos += 5;
               } else {
                 s0 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c239); }
+                if (peg$silentFails === 0) { peg$fail(peg$c245); }
               }
               if (s0 === peg$FAILED) {
-                if (input.substr(peg$currPos, 6) === peg$c240) {
-                  s0 = peg$c240;
+                if (input.substr(peg$currPos, 6) === peg$c246) {
+                  s0 = peg$c246;
                   peg$currPos += 6;
                 } else {
                   s0 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c241); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c247); }
                 }
               }
             }
@@ -10103,11 +10238,11 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 40) {
-        s1 = peg$c242;
+        s1 = peg$c248;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c243); }
+        if (peg$silentFails === 0) { peg$fail(peg$c249); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -10121,12 +10256,12 @@ const parser = /*
             s5 = peg$currPos;
             s6 = peg$parsewhiteSpace();
             if (s6 !== peg$FAILED) {
-              if (input.substr(peg$currPos, 2) === peg$c244) {
-                s7 = peg$c244;
+              if (input.substr(peg$currPos, 2) === peg$c250) {
+                s7 = peg$c250;
                 peg$currPos += 2;
               } else {
                 s7 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c245); }
+                if (peg$silentFails === 0) { peg$fail(peg$c251); }
               }
               if (s7 !== peg$FAILED) {
                 s8 = peg$parsewhiteSpace();
@@ -10157,12 +10292,12 @@ const parser = /*
                 s5 = peg$currPos;
                 s6 = peg$parsewhiteSpace();
                 if (s6 !== peg$FAILED) {
-                  if (input.substr(peg$currPos, 2) === peg$c244) {
-                    s7 = peg$c244;
+                  if (input.substr(peg$currPos, 2) === peg$c250) {
+                    s7 = peg$c250;
                     peg$currPos += 2;
                   } else {
                     s7 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c245); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c251); }
                   }
                   if (s7 !== peg$FAILED) {
                     s8 = peg$parsewhiteSpace();
@@ -10198,15 +10333,15 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 if (input.charCodeAt(peg$currPos) === 41) {
-                  s6 = peg$c246;
+                  s6 = peg$c252;
                   peg$currPos++;
                 } else {
                   s6 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c247); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c253); }
                 }
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c248(s3, s4);
+                  s1 = peg$c254(s3, s4);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -10241,11 +10376,11 @@ const parser = /*
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 40) {
-        s1 = peg$c242;
+        s1 = peg$c248;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c243); }
+        if (peg$silentFails === 0) { peg$fail(peg$c249); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parsewhiteSpace();
@@ -10263,11 +10398,11 @@ const parser = /*
             }
             if (s6 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 44) {
-                s7 = peg$c101;
+                s7 = peg$c106;
                 peg$currPos++;
               } else {
                 s7 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                if (peg$silentFails === 0) { peg$fail(peg$c107); }
               }
               if (s7 !== peg$FAILED) {
                 s8 = peg$parsewhiteSpace();
@@ -10304,11 +10439,11 @@ const parser = /*
               }
               if (s6 !== peg$FAILED) {
                 if (input.charCodeAt(peg$currPos) === 44) {
-                  s7 = peg$c101;
+                  s7 = peg$c106;
                   peg$currPos++;
                 } else {
                   s7 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c102); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c107); }
                 }
                 if (s7 !== peg$FAILED) {
                   s8 = peg$parsewhiteSpace();
@@ -10344,15 +10479,15 @@ const parser = /*
               }
               if (s5 !== peg$FAILED) {
                 if (input.charCodeAt(peg$currPos) === 41) {
-                  s6 = peg$c246;
+                  s6 = peg$c252;
                   peg$currPos++;
                 } else {
                   s6 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c247); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c253); }
                 }
                 if (s6 !== peg$FAILED) {
                   peg$savedPos = s0;
-                  s1 = peg$c249(s3, s4);
+                  s1 = peg$c255(s3, s4);
                   s0 = s1;
                 } else {
                   peg$currPos = s0;
@@ -10385,32 +10520,33 @@ const parser = /*
     function peg$parseVersion() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 64) {
-        s1 = peg$c1;
+        s1 = peg$c2;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c2); }
+        if (peg$silentFails === 0) { peg$fail(peg$c3); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c250.test(input.charAt(peg$currPos))) {
+        if (peg$c257.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c251); }
+          if (peg$silentFails === 0) { peg$fail(peg$c258); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c250.test(input.charAt(peg$currPos))) {
+            if (peg$c257.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c251); }
+              if (peg$silentFails === 0) { peg$fail(peg$c258); }
             }
           }
         } else {
@@ -10418,7 +10554,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c252(s2);
+          s1 = peg$c259(s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -10428,6 +10564,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c256); }
+      }
 
       return s0;
     }
@@ -10435,26 +10576,27 @@ const parser = /*
     function peg$parseIndent() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       peg$silentFails++;
       s1 = peg$currPos;
       s2 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s3 = peg$c253;
+        s3 = peg$c261;
         peg$currPos++;
       } else {
         s3 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c254); }
+        if (peg$silentFails === 0) { peg$fail(peg$c262); }
       }
       if (s3 !== peg$FAILED) {
         while (s3 !== peg$FAILED) {
           s2.push(s3);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c253;
+            s3 = peg$c261;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c254); }
+            if (peg$silentFails === 0) { peg$fail(peg$c262); }
           }
         }
       } else {
@@ -10462,7 +10604,7 @@ const parser = /*
       }
       if (s2 !== peg$FAILED) {
         peg$savedPos = peg$currPos;
-        s3 = peg$c255(s2);
+        s3 = peg$c263(s2);
         if (s3) {
           s3 = void 0;
         } else {
@@ -10486,6 +10628,11 @@ const parser = /*
       } else {
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c260); }
+      }
 
       return s0;
     }
@@ -10493,31 +10640,32 @@ const parser = /*
     function peg$parseSameIndent() {
       var s0, s1, s2, s3, s4;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       s1 = peg$currPos;
       peg$silentFails++;
       s2 = peg$currPos;
       s3 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s4 = peg$c253;
+        s4 = peg$c261;
         peg$currPos++;
       } else {
         s4 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c254); }
+        if (peg$silentFails === 0) { peg$fail(peg$c262); }
       }
       while (s4 !== peg$FAILED) {
         s3.push(s4);
         if (input.charCodeAt(peg$currPos) === 32) {
-          s4 = peg$c253;
+          s4 = peg$c261;
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c254); }
+          if (peg$silentFails === 0) { peg$fail(peg$c262); }
         }
       }
       if (s3 !== peg$FAILED) {
         peg$savedPos = peg$currPos;
-        s4 = peg$c256(s3);
+        s4 = peg$c265(s3);
         if (s4) {
           s4 = void 0;
         } else {
@@ -10544,20 +10692,20 @@ const parser = /*
       if (s1 !== peg$FAILED) {
         s2 = [];
         if (input.charCodeAt(peg$currPos) === 32) {
-          s3 = peg$c253;
+          s3 = peg$c261;
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c254); }
+          if (peg$silentFails === 0) { peg$fail(peg$c262); }
         }
         while (s3 !== peg$FAILED) {
           s2.push(s3);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c253;
+            s3 = peg$c261;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c254); }
+            if (peg$silentFails === 0) { peg$fail(peg$c262); }
           }
         }
         if (s2 !== peg$FAILED) {
@@ -10571,6 +10719,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c264); }
+      }
 
       return s0;
     }
@@ -10578,31 +10731,32 @@ const parser = /*
     function peg$parseSameOrMoreIndent() {
       var s0, s1, s2, s3, s4;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       s1 = peg$currPos;
       peg$silentFails++;
       s2 = peg$currPos;
       s3 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s4 = peg$c253;
+        s4 = peg$c261;
         peg$currPos++;
       } else {
         s4 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c254); }
+        if (peg$silentFails === 0) { peg$fail(peg$c262); }
       }
       while (s4 !== peg$FAILED) {
         s3.push(s4);
         if (input.charCodeAt(peg$currPos) === 32) {
-          s4 = peg$c253;
+          s4 = peg$c261;
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c254); }
+          if (peg$silentFails === 0) { peg$fail(peg$c262); }
         }
       }
       if (s3 !== peg$FAILED) {
         peg$savedPos = peg$currPos;
-        s4 = peg$c257(s3);
+        s4 = peg$c267(s3);
         if (s4) {
           s4 = void 0;
         } else {
@@ -10629,25 +10783,25 @@ const parser = /*
       if (s1 !== peg$FAILED) {
         s2 = [];
         if (input.charCodeAt(peg$currPos) === 32) {
-          s3 = peg$c253;
+          s3 = peg$c261;
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c254); }
+          if (peg$silentFails === 0) { peg$fail(peg$c262); }
         }
         while (s3 !== peg$FAILED) {
           s2.push(s3);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s3 = peg$c253;
+            s3 = peg$c261;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c254); }
+            if (peg$silentFails === 0) { peg$fail(peg$c262); }
           }
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c13();
+          s1 = peg$c14();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -10656,6 +10810,11 @@ const parser = /*
       } else {
         peg$currPos = s0;
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c266); }
       }
 
       return s0;
@@ -10671,60 +10830,60 @@ const parser = /*
         if (s1 === peg$FAILED) {
           s1 = peg$parseRecipeHandleFate();
           if (s1 === peg$FAILED) {
-            if (input.substr(peg$currPos, 8) === peg$c63) {
-              s1 = peg$c63;
+            if (input.substr(peg$currPos, 8) === peg$c65) {
+              s1 = peg$c65;
               peg$currPos += 8;
             } else {
               s1 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c64); }
+              if (peg$silentFails === 0) { peg$fail(peg$c66); }
             }
             if (s1 === peg$FAILED) {
-              if (input.substr(peg$currPos, 6) === peg$c148) {
-                s1 = peg$c148;
+              if (input.substr(peg$currPos, 6) === peg$c153) {
+                s1 = peg$c153;
                 peg$currPos += 6;
               } else {
                 s1 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c149); }
+                if (peg$silentFails === 0) { peg$fail(peg$c154); }
               }
               if (s1 === peg$FAILED) {
-                if (input.substr(peg$currPos, 6) === peg$c30) {
-                  s1 = peg$c30;
+                if (input.substr(peg$currPos, 6) === peg$c31) {
+                  s1 = peg$c31;
                   peg$currPos += 6;
                 } else {
                   s1 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c31); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c32); }
                 }
                 if (s1 === peg$FAILED) {
-                  if (input.substr(peg$currPos, 9) === peg$c33) {
-                    s1 = peg$c33;
+                  if (input.substr(peg$currPos, 9) === peg$c35) {
+                    s1 = peg$c35;
                     peg$currPos += 9;
                   } else {
                     s1 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c34); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c36); }
                   }
                   if (s1 === peg$FAILED) {
-                    if (input.substr(peg$currPos, 6) === peg$c217) {
-                      s1 = peg$c217;
+                    if (input.substr(peg$currPos, 6) === peg$c223) {
+                      s1 = peg$c223;
                       peg$currPos += 6;
                     } else {
                       s1 = peg$FAILED;
-                      if (peg$silentFails === 0) { peg$fail(peg$c218); }
+                      if (peg$silentFails === 0) { peg$fail(peg$c224); }
                     }
                     if (s1 === peg$FAILED) {
-                      if (input.substr(peg$currPos, 7) === peg$c189) {
-                        s1 = peg$c189;
+                      if (input.substr(peg$currPos, 7) === peg$c194) {
+                        s1 = peg$c194;
                         peg$currPos += 7;
                       } else {
                         s1 = peg$FAILED;
-                        if (peg$silentFails === 0) { peg$fail(peg$c190); }
+                        if (peg$silentFails === 0) { peg$fail(peg$c195); }
                       }
                       if (s1 === peg$FAILED) {
-                        if (input.substr(peg$currPos, 6) === peg$c143) {
-                          s1 = peg$c143;
+                        if (input.substr(peg$currPos, 6) === peg$c148) {
+                          s1 = peg$c148;
                           peg$currPos += 6;
                         } else {
                           s1 = peg$FAILED;
-                          if (peg$silentFails === 0) { peg$fail(peg$c144); }
+                          if (peg$silentFails === 0) { peg$fail(peg$c149); }
                         }
                       }
                     }
@@ -10736,12 +10895,12 @@ const parser = /*
         }
       }
       if (s1 !== peg$FAILED) {
-        if (peg$c258.test(input.charAt(peg$currPos))) {
+        if (peg$c268.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c259); }
+          if (peg$silentFails === 0) { peg$fail(peg$c269); }
         }
         if (s2 === peg$FAILED) {
           s2 = peg$currPos;
@@ -10751,7 +10910,7 @@ const parser = /*
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c260); }
+            if (peg$silentFails === 0) { peg$fail(peg$c270); }
           }
           peg$silentFails--;
           if (s3 === peg$FAILED) {
@@ -10763,7 +10922,7 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c261(s1);
+          s1 = peg$c271(s1);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -10780,32 +10939,33 @@ const parser = /*
     function peg$parsebackquotedString() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 96) {
-        s1 = peg$c262;
+        s1 = peg$c273;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c263); }
+        if (peg$silentFails === 0) { peg$fail(peg$c274); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c264.test(input.charAt(peg$currPos))) {
+        if (peg$c275.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c265); }
+          if (peg$silentFails === 0) { peg$fail(peg$c276); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c264.test(input.charAt(peg$currPos))) {
+            if (peg$c275.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c265); }
+              if (peg$silentFails === 0) { peg$fail(peg$c276); }
             }
           }
         } else {
@@ -10813,15 +10973,15 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 96) {
-            s3 = peg$c262;
+            s3 = peg$c273;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c263); }
+            if (peg$silentFails === 0) { peg$fail(peg$c274); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c266(s2);
+            s1 = peg$c277(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -10834,6 +10994,11 @@ const parser = /*
       } else {
         peg$currPos = s0;
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c272); }
       }
 
       return s0;
@@ -10842,32 +11007,33 @@ const parser = /*
     function peg$parseid() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 39) {
-        s1 = peg$c267;
+        s1 = peg$c279;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c268); }
+        if (peg$silentFails === 0) { peg$fail(peg$c280); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c269.test(input.charAt(peg$currPos))) {
+        if (peg$c281.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c270); }
+          if (peg$silentFails === 0) { peg$fail(peg$c282); }
         }
         if (s3 !== peg$FAILED) {
           while (s3 !== peg$FAILED) {
             s2.push(s3);
-            if (peg$c269.test(input.charAt(peg$currPos))) {
+            if (peg$c281.test(input.charAt(peg$currPos))) {
               s3 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c270); }
+              if (peg$silentFails === 0) { peg$fail(peg$c282); }
             }
           }
         } else {
@@ -10875,15 +11041,15 @@ const parser = /*
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 39) {
-            s3 = peg$c267;
+            s3 = peg$c279;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c268); }
+            if (peg$silentFails === 0) { peg$fail(peg$c280); }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c271(s2);
+            s1 = peg$c283(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -10897,6 +11063,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c278); }
+      }
 
       return s0;
     }
@@ -10904,36 +11075,37 @@ const parser = /*
     function peg$parseupperIdent() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
-      if (peg$c272.test(input.charAt(peg$currPos))) {
+      if (peg$c285.test(input.charAt(peg$currPos))) {
         s1 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c273); }
+        if (peg$silentFails === 0) { peg$fail(peg$c286); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c274.test(input.charAt(peg$currPos))) {
+        if (peg$c287.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c275); }
+          if (peg$silentFails === 0) { peg$fail(peg$c288); }
         }
         while (s3 !== peg$FAILED) {
           s2.push(s3);
-          if (peg$c274.test(input.charAt(peg$currPos))) {
+          if (peg$c287.test(input.charAt(peg$currPos))) {
             s3 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c275); }
+            if (peg$silentFails === 0) { peg$fail(peg$c288); }
           }
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c13();
+          s1 = peg$c14();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -10943,6 +11115,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c284); }
+      }
 
       return s0;
     }
@@ -10950,6 +11127,7 @@ const parser = /*
     function peg$parselowerIdent() {
       var s0, s1, s2, s3, s4;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       s1 = peg$currPos;
       peg$silentFails++;
@@ -10962,35 +11140,35 @@ const parser = /*
         s1 = peg$FAILED;
       }
       if (s1 !== peg$FAILED) {
-        if (peg$c276.test(input.charAt(peg$currPos))) {
+        if (peg$c290.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c277); }
+          if (peg$silentFails === 0) { peg$fail(peg$c291); }
         }
         if (s2 !== peg$FAILED) {
           s3 = [];
-          if (peg$c274.test(input.charAt(peg$currPos))) {
+          if (peg$c287.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c275); }
+            if (peg$silentFails === 0) { peg$fail(peg$c288); }
           }
           while (s4 !== peg$FAILED) {
             s3.push(s4);
-            if (peg$c274.test(input.charAt(peg$currPos))) {
+            if (peg$c287.test(input.charAt(peg$currPos))) {
               s4 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s4 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c275); }
+              if (peg$silentFails === 0) { peg$fail(peg$c288); }
             }
           }
           if (s3 !== peg$FAILED) {
             peg$savedPos = s0;
-            s1 = peg$c13();
+            s1 = peg$c14();
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -11004,6 +11182,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c289); }
+      }
 
       return s0;
     }
@@ -11011,36 +11194,37 @@ const parser = /*
     function peg$parsefieldName() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
-      if (peg$c276.test(input.charAt(peg$currPos))) {
+      if (peg$c290.test(input.charAt(peg$currPos))) {
         s1 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c277); }
+        if (peg$silentFails === 0) { peg$fail(peg$c291); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
-        if (peg$c274.test(input.charAt(peg$currPos))) {
+        if (peg$c287.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c275); }
+          if (peg$silentFails === 0) { peg$fail(peg$c288); }
         }
         while (s3 !== peg$FAILED) {
           s2.push(s3);
-          if (peg$c274.test(input.charAt(peg$currPos))) {
+          if (peg$c287.test(input.charAt(peg$currPos))) {
             s3 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c275); }
+            if (peg$silentFails === 0) { peg$fail(peg$c288); }
           }
         }
         if (s2 !== peg$FAILED) {
           peg$savedPos = s0;
-          s1 = peg$c13();
+          s1 = peg$c14();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -11050,6 +11234,11 @@ const parser = /*
         peg$currPos = s0;
         s0 = peg$FAILED;
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c292); }
+      }
 
       return s0;
     }
@@ -11057,27 +11246,33 @@ const parser = /*
     function peg$parsewhiteSpace() {
       var s0, s1;
 
+      peg$silentFails++;
       s0 = [];
       if (input.charCodeAt(peg$currPos) === 32) {
-        s1 = peg$c253;
+        s1 = peg$c261;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c254); }
+        if (peg$silentFails === 0) { peg$fail(peg$c262); }
       }
       if (s1 !== peg$FAILED) {
         while (s1 !== peg$FAILED) {
           s0.push(s1);
           if (input.charCodeAt(peg$currPos) === 32) {
-            s1 = peg$c253;
+            s1 = peg$c261;
             peg$currPos++;
           } else {
             s1 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c254); }
+            if (peg$silentFails === 0) { peg$fail(peg$c262); }
           }
         }
       } else {
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c293); }
       }
 
       return s0;
@@ -11086,23 +11281,24 @@ const parser = /*
     function peg$parseeolWhiteSpace() {
       var s0, s1, s2, s3, s4;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c278.test(input.charAt(peg$currPos))) {
+      if (peg$c295.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c279); }
+        if (peg$silentFails === 0) { peg$fail(peg$c296); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c278.test(input.charAt(peg$currPos))) {
+        if (peg$c295.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c279); }
+          if (peg$silentFails === 0) { peg$fail(peg$c296); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -11113,7 +11309,7 @@ const parser = /*
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c260); }
+          if (peg$silentFails === 0) { peg$fail(peg$c270); }
         }
         peg$silentFails--;
         if (s3 === peg$FAILED) {
@@ -11136,48 +11332,48 @@ const parser = /*
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         s1 = [];
-        if (peg$c278.test(input.charAt(peg$currPos))) {
+        if (peg$c295.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c279); }
+          if (peg$silentFails === 0) { peg$fail(peg$c296); }
         }
         while (s2 !== peg$FAILED) {
           s1.push(s2);
-          if (peg$c278.test(input.charAt(peg$currPos))) {
+          if (peg$c295.test(input.charAt(peg$currPos))) {
             s2 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c279); }
+            if (peg$silentFails === 0) { peg$fail(peg$c296); }
           }
         }
         if (s1 !== peg$FAILED) {
-          if (input.substr(peg$currPos, 2) === peg$c280) {
-            s2 = peg$c280;
+          if (input.substr(peg$currPos, 2) === peg$c297) {
+            s2 = peg$c297;
             peg$currPos += 2;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c281); }
+            if (peg$silentFails === 0) { peg$fail(peg$c298); }
           }
           if (s2 !== peg$FAILED) {
             s3 = [];
-            if (peg$c11.test(input.charAt(peg$currPos))) {
+            if (peg$c12.test(input.charAt(peg$currPos))) {
               s4 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s4 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c12); }
+              if (peg$silentFails === 0) { peg$fail(peg$c13); }
             }
             while (s4 !== peg$FAILED) {
               s3.push(s4);
-              if (peg$c11.test(input.charAt(peg$currPos))) {
+              if (peg$c12.test(input.charAt(peg$currPos))) {
                 s4 = input.charAt(peg$currPos);
                 peg$currPos++;
               } else {
                 s4 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c12); }
+                if (peg$silentFails === 0) { peg$fail(peg$c13); }
               }
             }
             if (s3 !== peg$FAILED) {
@@ -11204,21 +11400,21 @@ const parser = /*
         if (s0 === peg$FAILED) {
           s0 = peg$currPos;
           s1 = [];
-          if (peg$c278.test(input.charAt(peg$currPos))) {
+          if (peg$c295.test(input.charAt(peg$currPos))) {
             s2 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c279); }
+            if (peg$silentFails === 0) { peg$fail(peg$c296); }
           }
           while (s2 !== peg$FAILED) {
             s1.push(s2);
-            if (peg$c278.test(input.charAt(peg$currPos))) {
+            if (peg$c295.test(input.charAt(peg$currPos))) {
               s2 = input.charAt(peg$currPos);
               peg$currPos++;
             } else {
               s2 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c279); }
+              if (peg$silentFails === 0) { peg$fail(peg$c296); }
             }
           }
           if (s1 !== peg$FAILED) {
@@ -11245,6 +11441,11 @@ const parser = /*
           }
         }
       }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c294); }
+      }
 
       return s0;
     }
@@ -11252,32 +11453,33 @@ const parser = /*
     function peg$parseeol() {
       var s0, s1, s2, s3;
 
+      peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 13) {
-        s1 = peg$c282;
+        s1 = peg$c299;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c283); }
+        if (peg$silentFails === 0) { peg$fail(peg$c300); }
       }
       if (s1 === peg$FAILED) {
         s1 = null;
       }
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 10) {
-          s2 = peg$c284;
+          s2 = peg$c301;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c285); }
+          if (peg$silentFails === 0) { peg$fail(peg$c302); }
         }
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 13) {
-            s3 = peg$c282;
+            s3 = peg$c299;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c283); }
+            if (peg$silentFails === 0) { peg$fail(peg$c300); }
           }
           if (s3 === peg$FAILED) {
             s3 = null;
@@ -11296,6 +11498,11 @@ const parser = /*
       } else {
         peg$currPos = s0;
         s0 = peg$FAILED;
+      }
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c294); }
       }
 
       return s0;
@@ -11379,331 +11586,6 @@ const parser = /*
     parse:       peg$parse
   };
 })();
-
-// Copyright (c) 2017 Google Inc. All rights reserved.
-class Strategizer {
-    constructor(strategies, evaluators, ruleset) {
-        this._generation = 0;
-        this._internalPopulation = [];
-        this._population = [];
-        this._generated = [];
-        this._terminal = [];
-        this._strategies = strategies;
-        this._evaluators = evaluators;
-        this._ruleset = ruleset;
-        this.populationHash = new Map();
-    }
-    // Latest generation number.
-    get generation() {
-        return this._generation;
-    }
-    // All individuals in the current population.
-    get population() {
-        return this._population;
-    }
-    // Individuals of the latest generation.
-    get generated() {
-        return this._generated;
-    }
-    /**
-     * @return Individuals from the previous generation that were not descended from in the
-     * current generation.
-     */
-    get terminal() {
-        assert$1(this._terminal);
-        return this._terminal;
-    }
-    async generate() {
-        // Generate
-        const generation = this.generation + 1;
-        const generatedResults = await Promise.all(this._strategies.map(strategy => {
-            const recipeFilter = recipe => this._ruleset.isAllowed(strategy, recipe);
-            return strategy.generate({
-                generation: this.generation,
-                generated: this.generated.filter(recipeFilter),
-                terminal: this.terminal.filter(recipeFilter),
-                population: this.population.filter(recipeFilter)
-            });
-        }));
-        const record = {
-            generation,
-            sizeOfLastGeneration: this.generated.length,
-            generatedDerivationsByStrategy: {}
-        };
-        for (let i = 0; i < this._strategies.length; i++) {
-            record.generatedDerivationsByStrategy[this._strategies[i].constructor.name] = generatedResults[i].length;
-        }
-        let generated = [].concat(...generatedResults);
-        // TODO: get rid of this additional asynchrony
-        generated = await Promise.all(generated.map(async (result) => {
-            if (result.hash) {
-                result.hash = await result.hash;
-            }
-            return result;
-        }));
-        record.generatedDerivations = generated.length;
-        record.nullDerivations = 0;
-        record.invalidDerivations = 0;
-        record.duplicateDerivations = 0;
-        record.duplicateSameParentDerivations = 0;
-        record.nullDerivationsByStrategy = {};
-        record.invalidDerivationsByStrategy = {};
-        record.duplicateDerivationsByStrategy = {};
-        record.duplicateSameParentDerivationsByStrategy = {};
-        generated = generated.filter(result => {
-            const strategy = result.derivation[0].strategy.constructor.name;
-            if (result.hash) {
-                const existingResult = this.populationHash.get(result.hash);
-                if (existingResult) {
-                    if (result.derivation[0].parent === existingResult) {
-                        record.nullDerivations += 1;
-                        if (record.nullDerivationsByStrategy[strategy] == undefined) {
-                            record.nullDerivationsByStrategy[strategy] = 0;
-                        }
-                        record.nullDerivationsByStrategy[strategy]++;
-                    }
-                    else if (existingResult.derivation.map(a => a.parent).indexOf(result.derivation[0].parent) !== -1) {
-                        record.duplicateSameParentDerivations += 1;
-                        if (record.duplicateSameParentDerivationsByStrategy[strategy] ==
-                            undefined) {
-                            record.duplicateSameParentDerivationsByStrategy[strategy] = 0;
-                        }
-                        record.duplicateSameParentDerivationsByStrategy[strategy]++;
-                    }
-                    else {
-                        record.duplicateDerivations += 1;
-                        if (record.duplicateDerivationsByStrategy[strategy] == undefined) {
-                            record.duplicateDerivationsByStrategy[strategy] = 0;
-                        }
-                        record.duplicateDerivationsByStrategy[strategy]++;
-                        this.populationHash.get(result.hash).derivation.push(result.derivation[0]);
-                    }
-                    return false;
-                }
-                this.populationHash.set(result.hash, result);
-            }
-            if (result.valid === false) {
-                record.invalidDerivations++;
-                record.invalidDerivationsByStrategy[strategy] = (record.invalidDerivationsByStrategy[strategy] || 0) + 1;
-                return false;
-            }
-            return true;
-        });
-        const terminalMap = new Map();
-        for (const candidate of this.generated) {
-            terminalMap.set(candidate.result, candidate);
-        }
-        // TODO(piotrs): This is inefficient, improve at some point.
-        for (const result of this.populationHash.values()) {
-            for (const { parent } of result.derivation) {
-                if (parent && terminalMap.has(parent.result)) {
-                    terminalMap.delete(parent.result);
-                }
-            }
-        }
-        const terminal = [...terminalMap.values()];
-        record.survivingDerivations = generated.length;
-        generated.sort((a, b) => {
-            if (a.score > b.score) {
-                return -1;
-            }
-            if (a.score < b.score) {
-                return 1;
-            }
-            return 0;
-        });
-        const evaluations = await Promise.all(this._evaluators.map(strategy => {
-            return strategy.evaluate(this, generated);
-        }));
-        const fitness = Strategizer._mergeEvaluations(evaluations, generated);
-        assert$1(fitness.length === generated.length);
-        for (let i = 0; i < fitness.length; i++) {
-            this._internalPopulation.push({
-                fitness: fitness[i],
-                individual: generated[i],
-            });
-        }
-        // TODO: Instead of push+sort, merge `internalPopulation` with `generated`.
-        this._internalPopulation.sort((x, y) => y.fitness - x.fitness);
-        // Publish
-        this._terminal = terminal;
-        this._generation = generation;
-        this._generated = generated;
-        this._population = this._internalPopulation.map(x => x.individual);
-        return record;
-    }
-    static _mergeEvaluations(evaluations, generated) {
-        const n = generated.length;
-        const mergedEvaluations = [];
-        for (let i = 0; i < n; i++) {
-            let merged = NaN;
-            for (const evaluation of evaluations) {
-                const fitness = evaluation[i];
-                if (isNaN(fitness)) {
-                    continue;
-                }
-                if (isNaN(merged)) {
-                    merged = fitness;
-                }
-                else {
-                    // TODO: how should evaluations be combined?
-                    merged = (merged * i + fitness) / (i + 1);
-                }
-            }
-            if (isNaN(merged)) {
-                // TODO: What should happen when there was no evaluation?
-                merged = 0.5;
-            }
-            mergedEvaluations.push(merged);
-        }
-        return mergedEvaluations;
-    }
-    static over(results, walker, strategy) {
-        walker.onStrategy(strategy);
-        results.forEach(result => {
-            walker.onResult(result);
-            walker.onResultDone();
-        });
-        walker.onStrategyDone();
-        return walker.descendants;
-    }
-}
-class StrategizerWalker {
-    constructor() {
-        this.descendants = [];
-    }
-    onStrategy(strategy) {
-        this.currentStrategy = strategy;
-    }
-    onResult(result) {
-        this.currentResult = result;
-    }
-    createDescendant(result, score, hash, valid) {
-        assert$1(this.currentResult, 'no current result');
-        assert$1(this.currentStrategy, 'no current strategy');
-        if (this.currentResult.score) {
-            score += this.currentResult.score;
-        }
-        this.descendants.push({
-            result,
-            score,
-            derivation: [{ parent: this.currentResult, strategy: this.currentStrategy }],
-            hash,
-            valid,
-        });
-    }
-    onResultDone() {
-        this.currentResult = undefined;
-    }
-    onStrategyDone() {
-        this.currentStrategy = undefined;
-    }
-}
-// TODO: Doc call convention, incl strategies are stateful.
-class Strategy {
-    constructor(arc, args) {
-        this._arc = arc;
-        this._args = args;
-    }
-    get arc() {
-        return this._arc;
-    }
-    async activate(strategizer) {
-        // Returns estimated ability to generate/evaluate.
-        // TODO: What do these numbers mean? Some sort of indication of the accuracy of the
-        // generated individuals and evaluations.
-        return { generate: 0, evaluate: 0 };
-    }
-    getResults(inputParams) {
-        return inputParams.generated;
-    }
-    async generate(inputParams) {
-        return [];
-    }
-    async evaluate(strategizer, individuals) {
-        return individuals.map(() => NaN);
-    }
-}
-class RulesetBuilder {
-    constructor() {
-        // Strategy -> [Strategy*]
-        this._orderingRules = new Map();
-    }
-    /**
-     * When invoked for strategies (A, B), ensures that B will never follow A in
-     * the chain of derivations of all generated recipes.
-     *
-     * Following sequences are therefore valid: A, B, AB, AAABB, AC, DBC, CADCBCBD
-     * Following sequences are therefore invalid: BA, ABA, BCA, DBCA
-     *
-     * Transitive closure of the ordering is computed.
-     * I.e. For orderings (A, B) and (B, C), the ordering (A, C) is implied.
-     *
-     * Method can be called with multiple strategies at once.
-     * E.g. (A, B, C) implies (A, B), (B, C) and transitively (A, C).
-     *
-     * Method can be called with arrays of strategies, which represent groups.
-     * The ordering in the group is not enforced, but the ordering between them is.
-     * E.g. ([A, B], [C, D], E) is a shorthand for:
-     * (A, C), (A, D), (B, C), (B, D), (C, E), (D, E).
-     */
-    order(...strategiesOrGroups) {
-        for (let i = 0; i < strategiesOrGroups.length - 1; i++) {
-            const current = strategiesOrGroups[i];
-            const next = strategiesOrGroups[i + 1];
-            for (const strategy of Array.isArray(current) ? current : [current]) {
-                let set = this._orderingRules.get(strategy);
-                if (!set) {
-                    this._orderingRules.set(strategy, set = new Set());
-                }
-                for (const nextStrategy of Array.isArray(next) ? next : [next]) {
-                    set.add(nextStrategy);
-                }
-            }
-        }
-        return this;
-    }
-    build() {
-        // Making the ordering transitive.
-        const beingExpanded = new Set();
-        const alreadyExpanded = new Set();
-        for (const strategy of this._orderingRules.keys()) {
-            this._transitiveClosureFor(strategy, beingExpanded, alreadyExpanded);
-        }
-        return new Ruleset(this._orderingRules);
-    }
-    _transitiveClosureFor(strategy, beingExpanded, alreadyExpanded) {
-        assert$1(!beingExpanded.has(strategy), 'Detected a loop in the ordering rules');
-        const followingStrategies = this._orderingRules.get(strategy);
-        if (alreadyExpanded.has(strategy))
-            return followingStrategies || [];
-        if (followingStrategies) {
-            beingExpanded.add(strategy);
-            for (const following of followingStrategies) {
-                for (const expanded of this._transitiveClosureFor(following, beingExpanded, alreadyExpanded)) {
-                    followingStrategies.add(expanded);
-                }
-            }
-            beingExpanded.delete(strategy);
-        }
-        alreadyExpanded.add(strategy);
-        return followingStrategies || [];
-    }
-}
-class Ruleset {
-    constructor(orderingRules) {
-        this._orderingRules = orderingRules;
-    }
-    isAllowed(strategy, recipe) {
-        const forbiddenAncestors = this._orderingRules.get(strategy.constructor);
-        if (!forbiddenAncestors)
-            return true;
-        // TODO: This can be sped up with AND-ing bitsets of derivation strategies and forbiddenAncestors.
-        return !recipe.derivation.some(d => forbiddenAncestors.has(d.strategy.constructor));
-    }
-}
-// tslint:disable-next-line: variable-name
-Ruleset.Builder = RulesetBuilder;
 
 // Copyright (c) 2017 Google Inc. All rights reserved.
 function compareNulls(o1, o2) {
@@ -13076,31 +12958,18 @@ class Recipe {
             && (this._search === null || this._search.isResolved())
             && this._handles.every(handle => handle.isResolved())
             && this._particles.every(particle => particle.isResolved())
-            && this.isModalityResolved()
+            && this.modality.isResolved()
             && this._slots.every(slot => slot.isResolved())
             && this.handleConnections.every(connection => connection.isResolved())
             && this.slotConnections.every(slotConnection => slotConnection.isResolved());
         // TODO: check recipe level resolution requirements, eg there is no slot loops.
     }
-    get uiParticles() {
-        return this.particles.filter(p => Object.keys(p.consumedSlotConnections).length > 0);
+    isCompatible(modality) {
+        return this.particles.every(p => !p.spec || p.spec.isCompatible(modality));
     }
-    getSupportedModalities() {
-        const uiParticles = this.uiParticles;
-        return (uiParticles.length === 0 ? [] : uiParticles[0].spec.modality).filter(modality => uiParticles.every(particle => particle.spec.modality.indexOf(modality) >= 0));
-    }
-    isModalityResolved() {
-        // Either no particles with consumed slots, or non-empty intersection of modalities.
-        return this.uiParticles.length === 0 || this.getSupportedModalities().length > 0;
-    }
-    isCompatibleWithModality(modality) {
-        if (!modality) { // modality is unknown.
-            return true;
-        }
-        if (this.uiParticles.length === 0) {
-            return true;
-        }
-        return this.getSupportedModalities().indexOf(modality.name) >= 0;
+    get modality() {
+        return this.particles.filter(p => Boolean(p.spec && p.spec.slots.size > 0)).map(p => p.spec.modality)
+            .reduce((modality, total) => modality.intersection(total), Modality.all);
     }
     _findDuplicate(items, options) {
         const seenHandles = new Set();
@@ -13366,9 +13235,6 @@ class Recipe {
         const result = {};
         Object.keys(dict).forEach(key => result[key] = this._cloneMap.get(dict[key]));
         return result;
-    }
-    static over(results, walker, strategy) {
-        return Strategizer.over(results, walker, strategy);
     }
     _makeLocalNameMap() {
         const names = new Set();
@@ -15861,6 +15727,9 @@ class FirebaseBigCollection extends FirebaseStorageProvider {
     fromLiteral({ version, model }) {
         throw new Error('FirebaseBigCollection does not yet implement fromLiteral');
     }
+    clearItemsForTesting() {
+        throw new Error('unimplemented');
+    }
 }
 
 // @license
@@ -15973,6 +15842,13 @@ class PouchDbStorageProvider extends StorageProviderBase {
      */
     get db() {
         return this.storageEngine.dbForKey(this.pouchDbKey);
+    }
+    /**
+     * Increments the local version to be one more than the maximum of
+     * the local and remove versions.
+     */
+    bumpVersion(otherVersion) {
+        this.version = Math.max(this.version, otherVersion) + 1;
     }
 }
 
@@ -16109,7 +15985,7 @@ class PouchDbCollection extends PouchDbStorageProvider {
     async store(value, keys, originatorId = null) {
         assert$1(keys != null && keys.length > 0, 'keys required');
         const id = value.id;
-        const item = { value, keys, effective: undefined };
+        const item = { value, keys, effective: false };
         if (this.referenceMode) {
             const referredType = this.type.primitiveType();
             const storageKey = this.storageEngine.baseStorageKey(referredType, this.storageKey);
@@ -16185,7 +16061,7 @@ class PouchDbCollection extends PouchDbStorageProvider {
             return;
         }
         // remote revision is different, update local copy.
-        const model = doc['model'];
+        const model = doc.model;
         this._model = new CrdtCollectionModel(model);
         this._rev = doc._rev;
         this.version++;
@@ -16240,18 +16116,17 @@ class PouchDbCollection extends PouchDbStorageProvider {
         while (1) {
             // TODO(lindner): add backoff and error out if this goes on for too long
             let doc;
-            //: PouchDB.Core.IdMeta & PouchDB.Core.GetMeta & Model & {referenceMode: boolean, type: {}};
             let notFound = false;
             try {
                 doc = await this.db.get(this.pouchDbKey.location);
-                // as PouchDB.Core.IdMeta & PouchDB.Core.GetMeta & Model & {referenceMode: boolean, type: };
                 // Check remote doc.
                 // TODO(lindner): refactor with getModel above.
                 if (this._rev !== doc._rev) {
                     // remote revision is different, update local copy.
-                    this._model = new CrdtCollectionModel(doc['model']);
+                    this._model = new CrdtCollectionModel(doc.model);
                     this._rev = doc._rev;
-                    this.version++;
+                    this.referenceMode = doc.referenceMode;
+                    this.bumpVersion(doc.version);
                     // TODO(lindner): fire change events here?
                 }
             }
@@ -16277,8 +16152,8 @@ class PouchDbCollection extends PouchDbStorageProvider {
                 return this._model;
             }
             // Apply changes made by the mutator
-            doc['model'] = newModel.toLiteral();
-            doc['version'] = this.version;
+            doc.model = newModel.toLiteral();
+            doc.version = this.version;
             // Update on pouchdb
             try {
                 const putResult = await this.db.put(doc);
@@ -16337,10 +16212,25 @@ class PouchDbBigCollection extends PouchDbStorageProvider {
     async remove(id, keys, originatorId) {
         throw new Error('NotImplemented');
     }
+    async stream(pageSize, forward = true) {
+        throw new Error('NotImplemented');
+    }
+    async cursorNext(cursorId) {
+        throw new Error('NotImplemented');
+    }
+    cursorClose(cursorId) {
+        throw new Error('NotImplemented');
+    }
+    cursorVersion(cursorId) {
+        throw new Error('NotImplemented');
+    }
     toLiteral() {
         throw new Error('NotImplemented');
     }
     cloneFrom() {
+        throw new Error('NotImplemented');
+    }
+    clearItemsForTesting() {
         throw new Error('NotImplemented');
     }
     /**
@@ -16381,12 +16271,12 @@ class PouchDbVariable extends PouchDbStorageProvider {
             await this.backingStore.storeMultiple(underlying, [this.storageKey]);
         }
         await this.fromLiteral(literal);
-        // TODO(lindner): ask shane why this doesn't fire 'change' events like firebase does...
         if (literal && literal.model && literal.model.length === 1) {
             const newvalue = literal.model[0].value;
             if (newvalue) {
                 await this.getStoredAndUpdate(stored => newvalue);
             }
+            this._fire('change', new ChangeEvent({ data: newvalue, version: this.version }));
         }
     }
     /**
@@ -16439,8 +16329,6 @@ class PouchDbVariable extends PouchDbStorageProvider {
             return value;
         });
         this.version = version;
-        // TODO(lindner): Mimic firebase?
-        // TODO(lindner): firebase fires 'change' events here...
     }
     /**
      * @return a promise containing the variable value or null if it does not exist.
@@ -16514,7 +16402,6 @@ class PouchDbVariable extends PouchDbStorageProvider {
                 });
             }
         }
-        // Does anyone look at this?
         this.version++;
         const data = this.referenceMode ? value : this._stored;
         await this._fire('change', new ChangeEvent({ data, version: this.version, originatorId, barrier }));
@@ -16542,7 +16429,7 @@ class PouchDbVariable extends PouchDbStorageProvider {
         this._stored = value;
         this._rev = doc._rev;
         this.referenceMode = doc.referenceMode;
-        this.version++;
+        this.bumpVersion(doc.version);
         // Skip if value == null, which is what happens when docs are deleted..
         if (this.referenceMode && value) {
             this.ensureBackingStore().then(async (store) => {
@@ -16575,10 +16462,10 @@ class PouchDbVariable extends PouchDbStorageProvider {
             // compare revisions
             if (this._rev !== result._rev) {
                 // remote revision is different, update local copy.
-                this._stored = result['value'];
+                this._stored = result.value;
                 this._rev = result._rev;
                 this.referenceMode = result.referenceMode;
-                this.version++;
+                this.bumpVersion(result.version);
             }
         }
         catch (err) {
@@ -16622,7 +16509,7 @@ class PouchDbVariable extends PouchDbStorageProvider {
                     // remote revision is different, update local copy.
                     this._stored = doc.value;
                     this._rev = doc._rev;
-                    this.version++;
+                    this.bumpVersion(doc.version);
                 }
             }
             catch (err) {
@@ -17050,6 +16937,25 @@ class SyntheticCollection extends StorageProviderBase {
     }
     ensureBackingStore() {
         throw new Error('ensureBackingStore should never be called on SyntheticCollection!');
+    }
+    // tslint:disable-next-line: no-any
+    async getMultiple(ids) {
+        throw new Error('unimplemented');
+    }
+    async storeMultiple(values, keys, originatorId) {
+        throw new Error('unimplemented');
+    }
+    removeMultiple(items, originatorId) {
+        throw new Error('unimplemented');
+    }
+    async get(id) {
+        throw new Error('unimplemented');
+    }
+    remove(id, keys, originatorId) {
+        throw new Error('unimplemented');
+    }
+    store(value, keys, originatorId) {
+        throw new Error('unimplemented');
     }
 }
 
@@ -17713,6 +17619,9 @@ class Manifest {
         return this._recipes.find(recipe => recipe.annotation === 'active');
     }
     get particles() {
+        return Object.values(this._particles);
+    }
+    get allParticles() {
         return [...new Set(this._findAll(manifest => Object.values(manifest._particles)))];
     }
     get imports() {
@@ -17895,34 +17804,37 @@ class Manifest {
                 return e;
             }
             const lines = content.split('\n');
-            const position = e.location.start;
-            const line = lines[position.line - 1];
-            let span = 1;
-            if (e.location.end.line === position.line) {
-                span = e.location.end.column - position.column;
-            }
-            else {
-                span = line.length - position.column;
-            }
-            span = Math.max(1, span);
-            let highlight = '';
-            for (let i = 0; i < position.column - 1; i++) {
-                highlight += ' ';
-            }
-            for (let i = 0; i < span; i++) {
-                highlight += '^';
-            }
-            let preamble;
-            if (parseError) {
-                preamble = 'Parse error in';
-            }
-            else {
-                preamble = 'Post-parse processing error caused by';
-            }
-            const message = `${preamble} '${fileName}' line ${position.line}:${position.column}-${position.column + span - 1}.
+            const line = lines[e.location.start.line - 1];
+            // TODO(sjmiles): see https://github.com/PolymerLabs/arcs/issues/2570
+            let message = e.message || '';
+            if (line) {
+                let span = 1;
+                if (e.location.end.line === e.location.start.line) {
+                    span = e.location.end.column - e.location.start.column;
+                }
+                else {
+                    span = line.length - e.location.start.column;
+                }
+                span = Math.max(1, span);
+                let highlight = '';
+                for (let i = 0; i < e.location.start.column - 1; i++) {
+                    highlight += ' ';
+                }
+                for (let i = 0; i < span; i++) {
+                    highlight += '^';
+                }
+                let preamble;
+                if (parseError) {
+                    preamble = 'Parse error in';
+                }
+                else {
+                    preamble = 'Post-parse processing error caused by';
+                }
+                message = `${preamble} '${fileName}' line ${e.location.start.line}.
 ${e.message}
   ${line}
   ${highlight}`;
+            }
             const err = new ManifestError(e.location, message);
             if (!parseError) {
                 err.stack = e.stack;
@@ -18694,10 +18606,10 @@ class Runtime {
     /**
      * Given an arc, returns it's description as a string.
      */
-    static getArcDescription(arc) {
+    static async getArcDescription(arc) {
         // Verify that it's one of my arcs, and make this non-static, once I have
         // Runtime objects in the calling code.
-        return new Description(arc).getArcDescription();
+        return (await Description.create(arc)).getArcDescription();
     }
     /**
      * Parse a textual manifest and return a Manifest object. See the Manifest
@@ -19293,6 +19205,7 @@ class AbstractDevtoolsChannel {
         this.messageListeners = new Map();
     }
     send(message) {
+        this.ensureNoCycle(message);
         this.debouncedMessages.push(message);
         if (!this.debouncing) {
             this.debouncing = true;
@@ -19328,6 +19241,14 @@ class AbstractDevtoolsChannel {
     }
     _flush(messages) {
         throw new Error('Not implemented in an abstract class');
+    }
+    ensureNoCycle(object, objectPath = []) {
+        if (!object || typeof object !== 'object')
+            return;
+        assert$1(objectPath.indexOf(object) === -1, 'Message cannot contain a cycle');
+        objectPath.push(object);
+        (Array.isArray(object) ? object : Object.values(object)).forEach(element => this.ensureNoCycle(element, objectPath));
+        objectPath.pop();
     }
 }
 class ArcDevtoolsChannel {
@@ -19373,7 +19294,6 @@ class DevtoolsBroker {
   }
   static markConnected() {
     root._arcDebugPromiseResolve();
-    return {preExistingArcs: !!root.arc};
   }
 }
 
@@ -19394,7 +19314,7 @@ class DevtoolsChannel extends AbstractDevtoolsChannel {
     this.server.on('connection', ws => {
       this.socket = ws;
       this.socket.on('message', msg => {
-        if (msg === 'init') {
+        if (msg === 'init') { // is 'init' needed?
           DevtoolsBroker.markConnected();
         } else {
           this._handleMessage(JSON.parse(msg));
@@ -19406,6 +19326,8 @@ class DevtoolsChannel extends AbstractDevtoolsChannel {
   _flush(messages) {
     if (this.socket) {
       this.socket.send(JSON.stringify(messages));
+    } else {
+      throw new Error(); // maybe?
     }
   }
 }
@@ -19879,7 +19801,7 @@ let PECInnerPort = class PECInnerPort extends APIPort {
     ConstructInnerArc(callback, particle) { }
     ArcCreateHandle(callback, arc, type, name) { }
     ArcMapHandle(callback, arc, handle) { }
-    ArcCreateSlot(callback, arc, transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, handleId) { }
+    ArcCreateSlot(callback, arc, transformationParticle, transformationSlotName, handleId) { }
     ArcLoadRecipe(arc, recipe, callback) { }
     RaiseSystemException(exception, methodName, particleId) { }
     // To show stack traces for calls made inside the context, we need to capture the trace at the call point and
@@ -19944,7 +19866,7 @@ __decorate([
     __param(0, LocalMapped), __param(1, RemoteMapped), __param(2, Mapped)
 ], PECInnerPort.prototype, "ArcMapHandle", null);
 __decorate([
-    __param(0, LocalMapped), __param(1, RemoteMapped), __param(2, Mapped), __param(3, Direct), __param(4, Direct), __param(5, Direct), __param(6, Direct)
+    __param(0, LocalMapped), __param(1, RemoteMapped), __param(2, Mapped), __param(3, Direct), __param(4, Direct)
 ], PECInnerPort.prototype, "ArcCreateSlot", null);
 __decorate([
     __param(0, RemoteMapped), __param(1, Direct), __param(2, LocalMapped)
@@ -19955,6 +19877,331 @@ __decorate([
 PECInnerPort = __decorate([
     AutoConstruct(PECOuterPort)
 ], PECInnerPort);
+
+// Copyright (c) 2017 Google Inc. All rights reserved.
+class Strategizer {
+    constructor(strategies, evaluators, ruleset) {
+        this._generation = 0;
+        this._internalPopulation = [];
+        this._population = [];
+        this._generated = [];
+        this._terminal = [];
+        this._strategies = strategies;
+        this._evaluators = evaluators;
+        this._ruleset = ruleset;
+        this.populationHash = new Map();
+    }
+    // Latest generation number.
+    get generation() {
+        return this._generation;
+    }
+    // All individuals in the current population.
+    get population() {
+        return this._population;
+    }
+    // Individuals of the latest generation.
+    get generated() {
+        return this._generated;
+    }
+    /**
+     * @return Individuals from the previous generation that were not descended from in the
+     * current generation.
+     */
+    get terminal() {
+        assert$1(this._terminal);
+        return this._terminal;
+    }
+    async generate() {
+        // Generate
+        const generation = this.generation + 1;
+        const generatedResults = await Promise.all(this._strategies.map(strategy => {
+            const recipeFilter = recipe => this._ruleset.isAllowed(strategy, recipe);
+            return strategy.generate({
+                generation: this.generation,
+                generated: this.generated.filter(recipeFilter),
+                terminal: this.terminal.filter(recipeFilter),
+                population: this.population.filter(recipeFilter)
+            });
+        }));
+        const record = {
+            generation,
+            sizeOfLastGeneration: this.generated.length,
+            generatedDerivationsByStrategy: {}
+        };
+        for (let i = 0; i < this._strategies.length; i++) {
+            record.generatedDerivationsByStrategy[this._strategies[i].constructor.name] = generatedResults[i].length;
+        }
+        let generated = [].concat(...generatedResults);
+        // TODO: get rid of this additional asynchrony
+        generated = await Promise.all(generated.map(async (result) => {
+            if (result.hash) {
+                result.hash = await result.hash;
+            }
+            return result;
+        }));
+        record.generatedDerivations = generated.length;
+        record.nullDerivations = 0;
+        record.invalidDerivations = 0;
+        record.duplicateDerivations = 0;
+        record.duplicateSameParentDerivations = 0;
+        record.nullDerivationsByStrategy = {};
+        record.invalidDerivationsByStrategy = {};
+        record.duplicateDerivationsByStrategy = {};
+        record.duplicateSameParentDerivationsByStrategy = {};
+        generated = generated.filter(result => {
+            const strategy = result.derivation[0].strategy.constructor.name;
+            if (result.hash) {
+                const existingResult = this.populationHash.get(result.hash);
+                if (existingResult) {
+                    if (result.derivation[0].parent === existingResult) {
+                        record.nullDerivations += 1;
+                        if (record.nullDerivationsByStrategy[strategy] == undefined) {
+                            record.nullDerivationsByStrategy[strategy] = 0;
+                        }
+                        record.nullDerivationsByStrategy[strategy]++;
+                    }
+                    else if (existingResult.derivation.map(a => a.parent).indexOf(result.derivation[0].parent) !== -1) {
+                        record.duplicateSameParentDerivations += 1;
+                        if (record.duplicateSameParentDerivationsByStrategy[strategy] ==
+                            undefined) {
+                            record.duplicateSameParentDerivationsByStrategy[strategy] = 0;
+                        }
+                        record.duplicateSameParentDerivationsByStrategy[strategy]++;
+                    }
+                    else {
+                        record.duplicateDerivations += 1;
+                        if (record.duplicateDerivationsByStrategy[strategy] == undefined) {
+                            record.duplicateDerivationsByStrategy[strategy] = 0;
+                        }
+                        record.duplicateDerivationsByStrategy[strategy]++;
+                        this.populationHash.get(result.hash).derivation.push(result.derivation[0]);
+                    }
+                    return false;
+                }
+                this.populationHash.set(result.hash, result);
+            }
+            if (result.valid === false) {
+                record.invalidDerivations++;
+                record.invalidDerivationsByStrategy[strategy] = (record.invalidDerivationsByStrategy[strategy] || 0) + 1;
+                return false;
+            }
+            return true;
+        });
+        const terminalMap = new Map();
+        for (const candidate of this.generated) {
+            terminalMap.set(candidate.result, candidate);
+        }
+        // TODO(piotrs): This is inefficient, improve at some point.
+        for (const result of this.populationHash.values()) {
+            for (const { parent } of result.derivation) {
+                if (parent && terminalMap.has(parent.result)) {
+                    terminalMap.delete(parent.result);
+                }
+            }
+        }
+        const terminal = [...terminalMap.values()];
+        record.survivingDerivations = generated.length;
+        generated.sort((a, b) => {
+            if (a.score > b.score) {
+                return -1;
+            }
+            if (a.score < b.score) {
+                return 1;
+            }
+            return 0;
+        });
+        const evaluations = await Promise.all(this._evaluators.map(strategy => {
+            return strategy.evaluate(this, generated);
+        }));
+        const fitness = Strategizer._mergeEvaluations(evaluations, generated);
+        assert$1(fitness.length === generated.length);
+        for (let i = 0; i < fitness.length; i++) {
+            this._internalPopulation.push({
+                fitness: fitness[i],
+                individual: generated[i],
+            });
+        }
+        // TODO: Instead of push+sort, merge `internalPopulation` with `generated`.
+        this._internalPopulation.sort((x, y) => y.fitness - x.fitness);
+        // Publish
+        this._terminal = terminal;
+        this._generation = generation;
+        this._generated = generated;
+        this._population = this._internalPopulation.map(x => x.individual);
+        return record;
+    }
+    static _mergeEvaluations(evaluations, generated) {
+        const n = generated.length;
+        const mergedEvaluations = [];
+        for (let i = 0; i < n; i++) {
+            let merged = NaN;
+            for (const evaluation of evaluations) {
+                const fitness = evaluation[i];
+                if (isNaN(fitness)) {
+                    continue;
+                }
+                if (isNaN(merged)) {
+                    merged = fitness;
+                }
+                else {
+                    // TODO: how should evaluations be combined?
+                    merged = (merged * i + fitness) / (i + 1);
+                }
+            }
+            if (isNaN(merged)) {
+                // TODO: What should happen when there was no evaluation?
+                merged = 0.5;
+            }
+            mergedEvaluations.push(merged);
+        }
+        return mergedEvaluations;
+    }
+    static over(results, walker, strategy) {
+        walker.onStrategy(strategy);
+        results.forEach(result => {
+            walker.onResult(result);
+            walker.onResultDone();
+        });
+        walker.onStrategyDone();
+        return walker.descendants;
+    }
+}
+class StrategizerWalker {
+    constructor() {
+        this.descendants = [];
+    }
+    onStrategy(strategy) {
+        this.currentStrategy = strategy;
+    }
+    onResult(result) {
+        this.currentResult = result;
+    }
+    createDescendant(result, score, hash, valid) {
+        assert$1(this.currentResult, 'no current result');
+        assert$1(this.currentStrategy, 'no current strategy');
+        if (this.currentResult.score) {
+            score += this.currentResult.score;
+        }
+        this.descendants.push({
+            result,
+            score,
+            derivation: [{ parent: this.currentResult, strategy: this.currentStrategy }],
+            hash,
+            valid,
+        });
+    }
+    onResultDone() {
+        this.currentResult = undefined;
+    }
+    onStrategyDone() {
+        this.currentStrategy = undefined;
+    }
+}
+// TODO: Doc call convention, incl strategies are stateful.
+class Strategy {
+    constructor(arc, args) {
+        this._arc = arc;
+        this._args = args;
+    }
+    get arc() {
+        return this._arc;
+    }
+    async activate(strategizer) {
+        // Returns estimated ability to generate/evaluate.
+        // TODO: What do these numbers mean? Some sort of indication of the accuracy of the
+        // generated individuals and evaluations.
+        return { generate: 0, evaluate: 0 };
+    }
+    getResults(inputParams) {
+        return inputParams.generated;
+    }
+    async generate(inputParams) {
+        return [];
+    }
+    async evaluate(strategizer, individuals) {
+        return individuals.map(() => NaN);
+    }
+}
+class RulesetBuilder {
+    constructor() {
+        // Strategy -> [Strategy*]
+        this._orderingRules = new Map();
+    }
+    /**
+     * When invoked for strategies (A, B), ensures that B will never follow A in
+     * the chain of derivations of all generated recipes.
+     *
+     * Following sequences are therefore valid: A, B, AB, AAABB, AC, DBC, CADCBCBD
+     * Following sequences are therefore invalid: BA, ABA, BCA, DBCA
+     *
+     * Transitive closure of the ordering is computed.
+     * I.e. For orderings (A, B) and (B, C), the ordering (A, C) is implied.
+     *
+     * Method can be called with multiple strategies at once.
+     * E.g. (A, B, C) implies (A, B), (B, C) and transitively (A, C).
+     *
+     * Method can be called with arrays of strategies, which represent groups.
+     * The ordering in the group is not enforced, but the ordering between them is.
+     * E.g. ([A, B], [C, D], E) is a shorthand for:
+     * (A, C), (A, D), (B, C), (B, D), (C, E), (D, E).
+     */
+    order(...strategiesOrGroups) {
+        for (let i = 0; i < strategiesOrGroups.length - 1; i++) {
+            const current = strategiesOrGroups[i];
+            const next = strategiesOrGroups[i + 1];
+            for (const strategy of Array.isArray(current) ? current : [current]) {
+                let set = this._orderingRules.get(strategy);
+                if (!set) {
+                    this._orderingRules.set(strategy, set = new Set());
+                }
+                for (const nextStrategy of Array.isArray(next) ? next : [next]) {
+                    set.add(nextStrategy);
+                }
+            }
+        }
+        return this;
+    }
+    build() {
+        // Making the ordering transitive.
+        const beingExpanded = new Set();
+        const alreadyExpanded = new Set();
+        for (const strategy of this._orderingRules.keys()) {
+            this._transitiveClosureFor(strategy, beingExpanded, alreadyExpanded);
+        }
+        return new Ruleset(this._orderingRules);
+    }
+    _transitiveClosureFor(strategy, beingExpanded, alreadyExpanded) {
+        assert$1(!beingExpanded.has(strategy), 'Detected a loop in the ordering rules');
+        const followingStrategies = this._orderingRules.get(strategy);
+        if (alreadyExpanded.has(strategy))
+            return followingStrategies || [];
+        if (followingStrategies) {
+            beingExpanded.add(strategy);
+            for (const following of followingStrategies) {
+                for (const expanded of this._transitiveClosureFor(following, beingExpanded, alreadyExpanded)) {
+                    followingStrategies.add(expanded);
+                }
+            }
+            beingExpanded.delete(strategy);
+        }
+        alreadyExpanded.add(strategy);
+        return followingStrategies || [];
+    }
+}
+class Ruleset {
+    constructor(orderingRules) {
+        this._orderingRules = orderingRules;
+    }
+    isAllowed(strategy, recipe) {
+        const forbiddenAncestors = this._orderingRules.get(strategy.constructor);
+        if (!forbiddenAncestors)
+            return true;
+        // TODO: This can be sped up with AND-ing bitsets of derivation strategies and forbiddenAncestors.
+        return !recipe.derivation.some(d => forbiddenAncestors.has(d.strategy.constructor));
+    }
+}
+// tslint:disable-next-line: variable-name
+Ruleset.Builder = RulesetBuilder;
 
 // Copyright (c) 2017 Google Inc. All rights reserved.
 /**
@@ -20143,7 +20390,7 @@ Walker.Independent = WalkerTactic.Independent;
 class MapSlots extends Strategy {
     async generate(inputParams) {
         const arc = this.arc;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onSlotConnection(recipe, slotConnection) {
                 // don't try to connect verb constraints
                 // TODO: is this right? Should constraints be connectible, in order to precompute the
@@ -20225,6 +20472,7 @@ class MapSlots extends Strategy {
     }
     static specMatch(slotConnection, slot) {
         return slotConnection.slotSpec && // if there's no slotSpec, this is just a slot constraint on a verb
+            slot.spec && // if there is no spec on the slot, it is a hosted slot in the inner arc
             slotConnection.slotSpec.isSet === slot.spec.isSet;
     }
     // Returns true, if the slot connection's tags intersection with slot's tags is nonempty.
@@ -20245,7 +20493,7 @@ class MapSlots extends Strategy {
         if (slot.handles.length === 0) {
             return true; // slot is not limited to specific handles
         }
-        return Object.values(slotConnection.particle.connections).find(handleConn => {
+        return !!Object.values(slotConnection.particle.connections).find(handleConn => {
             return slot.handles.includes(handleConn.handle) ||
                 (handleConn.handle && handleConn.handle.id && slot.handles.map(sh => sh.id).includes(handleConn.handle.id));
         });
@@ -20256,7 +20504,7 @@ class MapSlots extends Strategy {
 class ResolveRecipe extends Strategy {
     async generate(inputParams) {
         const arc = this.arc;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandle(recipe, handle) {
                 if (handle.connections.length === 0 ||
                     (handle.id && handle.storageKey) || (!handle.type) ||
@@ -20507,15 +20755,17 @@ class ParticleExecutionHost {
                 this.GetBackingStoreCallback(store, callback, type.collectionOf(), type.toString(), store.id, storageKey);
             }
             onConstructInnerArc(callback, particle) {
-                const arc = { particle };
+                const arc = pec.arc.createInnerArc(particle);
                 this.ConstructArcCallback(callback, arc);
             }
             async onArcCreateHandle(callback, arc, type, name) {
                 // At the moment, inner arcs are not persisted like their containers, but are instead
-                // recreated when an arc is deserialized. As a consequence of this, dynamically 
-                // created handles for inner arcs must always be volatile to prevent storage 
+                // recreated when an arc is deserialized. As a consequence of this, dynamically
+                // created handles for inner arcs must always be volatile to prevent storage
                 // in firebase.
-                const store = await pec.arc.createStore(type, name, null, [], 'volatile');
+                const store = await arc.createStore(type, name, null, [], 'volatile');
+                // Store belongs to the inner arc, but the transformation particle,
+                // which itself is in the outer arc gets access to it.
                 this.CreateHandleCallback(store, callback, type, name, store.id);
             }
             onArcMapHandle(callback, arc, handle) {
@@ -20523,15 +20773,15 @@ class ParticleExecutionHost {
                 // TODO: create hosted handles map with specially generated ids instead of returning the real ones?
                 this.MapHandleCallback({}, callback, handle.id);
             }
-            onArcCreateSlot(callback, arc, transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, handleId) {
+            onArcCreateSlot(callback, arc, transformationParticle, transformationSlotName, handleId) {
                 let hostedSlotId;
                 if (pec.slotComposer) {
-                    hostedSlotId = pec.slotComposer.createHostedSlot(transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, handleId);
+                    hostedSlotId = pec.slotComposer.createHostedSlot(arc, transformationParticle, transformationSlotName, handleId);
                 }
                 this.CreateSlotCallback({}, callback, hostedSlotId);
             }
             async onArcLoadRecipe(arc, recipe, callback) {
-                const manifest = await Manifest.parse(recipe, { loader: pec.arc.loader, fileName: '' });
+                const manifest = await Manifest.parse(recipe, { loader: arc.loader, fileName: '' });
                 const successResponse = {
                     providedSlotIds: {}
                 };
@@ -20540,6 +20790,15 @@ class ParticleExecutionHost {
                 // there's more than one recipe since currently we silently ignore them.
                 let recipe0 = manifest.recipes[0];
                 if (recipe0) {
+                    for (const slot of recipe0.slots) {
+                        slot.id = slot.id || `slotid-${arc.generateID()}`;
+                        if (slot.sourceConnection) {
+                            const particlelocalName = slot.sourceConnection.particle.localName;
+                            if (particlelocalName) {
+                                successResponse.providedSlotIds[`${particlelocalName}.${slot.name}`] = slot.id;
+                            }
+                        }
+                    }
                     const missingHandles = [];
                     for (const handle of recipe0.handles) {
                         const fromHandle = pec.arc.findStoreById(handle.id) || manifest.findStoreById(handle.id);
@@ -20550,21 +20809,16 @@ class ParticleExecutionHost {
                         handle.mapToStorage(fromHandle);
                     }
                     if (missingHandles.length > 0) {
-                        const resolvedRecipe = await new RecipeResolver(pec.arc).resolve(recipe0);
-                        if (!resolvedRecipe) {
+                        let recipeToResolve = recipe0;
+                        // We're resolving both against the inner and the outer arc.
+                        for (const resolver of [new RecipeResolver(arc /* inner */), new RecipeResolver(pec.arc /* outer */)]) {
+                            recipeToResolve = await resolver.resolve(recipeToResolve) || recipeToResolve;
+                        }
+                        if (recipeToResolve === recipe0) {
                             error = `Recipe couldn't load due to missing handles [recipe=${recipe0}, missingHandles=${missingHandles.join('\n')}].`;
                         }
                         else {
-                            recipe0 = resolvedRecipe;
-                        }
-                    }
-                    for (const slot of recipe0.slots) {
-                        slot.id = slot.id || `slotid-${pec.arc.generateID()}`;
-                        if (slot.sourceConnection) {
-                            const particlelocalName = slot.sourceConnection.particle.localName;
-                            if (particlelocalName) {
-                                successResponse.providedSlotIds[`${particlelocalName}.${slot.name}`] = slot.id;
-                            }
+                            recipe0 = recipeToResolve;
                         }
                     }
                     if (!error) {
@@ -20576,10 +20830,10 @@ class ParticleExecutionHost {
                                 // TODO: pass tags through too, and reconcile with similar logic
                                 // in Arc.deserialize.
                                 manifest.stores.forEach(store => pec.arc._registerStore(store, []));
-                                pec.arc.instantiate(recipe0, arc);
+                                arc.instantiate(recipe0);
                             }
                             else {
-                                error = `Recipe is not resolvable ${recipe0.toString({ showUnresolved: true })}`;
+                                error = `Recipe is not resolvable:\n${recipe0.toString({ showUnresolved: true })}`;
                             }
                         }
                         else {
@@ -21326,10 +21580,10 @@ class ParticleExecutionContext {
                     resolve(id);
                 }, arcId, handle));
             },
-            createSlot(transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, handleId) {
+            createSlot(transformationParticle, transformationSlotName, handleId) {
                 // handleId: the ID of a handle (returned by `createHandle` above) this slot is rendering; null - if not applicable.
                 // TODO: support multiple handle IDs.
-                return new Promise((resolve, reject) => pec.apiPort.ArcCreateSlot(hostedSlotId => resolve(hostedSlotId), arcId, transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, handleId));
+                return new Promise((resolve, reject) => pec.apiPort.ArcCreateSlot(hostedSlotId => resolve(hostedSlotId), arcId, transformationParticle, transformationSlotName, handleId));
             },
             loadRecipe(recipe) {
                 // TODO: do we want to return a promise on completion?
@@ -22386,8 +22640,7 @@ class MultiplexerDomParticle extends TransformationDomParticle {
       }
       const hostedSlotName = [...resolvedHostedParticle.slots.keys()][0];
       const slotName = [...this.spec.slots.values()][0].name;
-      const slotId = await arc.createSlot(
-          this, slotName, resolvedHostedParticle.name, hostedSlotName, itemHandle._id);
+      const slotId = await arc.createSlot(this, slotName, itemHandle._id);
 
       if (!slotId) {
         continue;
@@ -22685,40 +22938,39 @@ class Loader {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-
-/** @class StubLoader
+/**
  * A Loader initialized with a per-path canned responses.
  * Value for '*' key can be specified for a response if the path did not match.
  * If '*' is not specified and path is not matched, Loader logic is invoked.
  */
 class StubLoader extends Loader {
-  constructor(fileMap) {
-    super();
-    this._fileMap = fileMap;
-    if (fileMap.hasOwnProperty('*')) {
-      this._cannedResponse = fileMap['*'];
+    constructor(fileMap) {
+        super();
+        this._fileMap = fileMap;
+        if (fileMap.hasOwnProperty('*')) {
+            this._cannedResponse = fileMap['*'];
+        }
     }
-  }
-  loadResource(path) {
-    return this._fileMap.hasOwnProperty(path)
-        ? this._fileMap[path]
-        : (this._cannedResponse || super.loadResource(path));
-  }
-  path(fileName) {
-    return (this._fileMap.hasOwnProperty(fileName) || this._cannedResponse)
-        ? fileName
-        : super.path(fileName);
-  }
-  join(prefix, path) {
-    // If referring from stubbed content, don't prepend stubbed filename.
-    return (this._fileMap.hasOwnProperty(prefix) || this._cannedResponse)
-        ? path
-        : super.join(prefix, path);
-  }
-  clone() {
-    // Each ParticleExecutionContext should get its own Loader, this facilitates that.
-    return new StubLoader(this._fileMap);
-  }
+    loadResource(path) {
+        return this._fileMap.hasOwnProperty(path)
+            ? this._fileMap[path]
+            : (this._cannedResponse || super.loadResource(path));
+    }
+    path(fileName) {
+        return (this._fileMap.hasOwnProperty(fileName) || this._cannedResponse)
+            ? fileName
+            : super.path(fileName);
+    }
+    join(prefix, path) {
+        // If referring from stubbed content, don't prepend stubbed filename.
+        return (this._fileMap.hasOwnProperty(prefix) || this._cannedResponse)
+            ? path
+            : super.join(prefix, path);
+    }
+    clone() {
+        // Each ParticleExecutionContext should get its own Loader, this facilitates that.
+        return new StubLoader(this._fileMap);
+    }
 }
 
 // @license
@@ -22779,14 +23031,11 @@ function now$1() {
 
 // Copyright (c) 2017 Google Inc. All rights reserved.
 class ConvertConstraintsToConnections extends Strategy {
-    constructor(arc, args) {
-        super(arc, args);
-        this.modality = arc.modality;
-    }
     async generate(inputParams) {
-        const modality = this.modality;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        const arcModality = this.arc.modality;
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onRecipe(recipe) {
+                const modality = arcModality.intersection(recipe.modality);
                 // The particles & handles Sets are used as input to RecipeUtil's shape functionality
                 // (this is the algorithm that "finds" the constraint set in the recipe).
                 // They track which particles/handles need to be found/created.
@@ -22806,10 +23055,9 @@ class ConvertConstraintsToConnections extends Strategy {
                     const from = constraint.from;
                     const to = constraint.to;
                     // Don't process constraints if their listed particles don't match the current modality.
-                    if (modality
-                        && from instanceof ParticleEndPoint
+                    if (from instanceof ParticleEndPoint
                         && to instanceof ParticleEndPoint
-                        && (!from.particle.matchModality(modality) || !to.particle.matchModality(modality))) {
+                        && (!from.particle.isCompatible(modality) || !to.particle.isCompatible(modality))) {
                         return undefined;
                     }
                     const reverse = { '->': '<-', '=': '=', '<-': '->' };
@@ -22988,7 +23236,7 @@ class ConvertConstraintsToConnections extends Strategy {
 class AssignHandles extends Strategy {
     async generate(inputParams) {
         const self = this;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandle(recipe, handle) {
                 if (!['?', 'use', 'copy', 'map'].includes(handle.fate)) {
                     return undefined;
@@ -23096,13 +23344,7 @@ class InitPopulation extends Strategy {
         for (const slot of this.arc.activeRecipe.slots.filter(s => s.sourceConnection)) {
             results.push(...this._recipeIndex.findConsumeSlotConnectionMatch(slot).map(({ slotConn }) => ({ recipe: slotConn.recipe })));
         }
-        let innerArcHandles = [];
-        for (const recipe of this.arc.recipes) {
-            for (const innerArc of [...recipe.innerArcs.values()]) {
-                innerArcHandles = innerArcHandles.concat(innerArc.activeRecipe.handles);
-            }
-        }
-        for (const handle of this.arc.activeRecipe.handles.concat(innerArcHandles)) {
+        for (const handle of [].concat(...this.arc.allDescendingArcs.map(arc => arc.activeRecipe.handles))) {
             results.push(...this._recipeIndex.findHandleMatch(handle, ['use', '?']).map(otherHandle => ({ recipe: otherHandle.recipe })));
         }
         return results;
@@ -23119,15 +23361,15 @@ class InitPopulation extends Strategy {
 class MatchParticleByVerb extends Strategy {
     async generate(inputParams) {
         const arc = this.arc;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onParticle(recipe, particle) {
                 if (particle.name) {
                     // Particle already has explicit name.
                     return undefined;
                 }
-                const modality = arc.modality;
+                const modality = arc.modality.intersection(recipe.modality);
                 const particleSpecs = arc.context.findParticlesByVerb(particle.primaryVerb)
-                    .filter(spec => !modality || spec.matchModality(modality));
+                    .filter(spec => spec.isCompatible(modality));
                 return particleSpecs.map(spec => {
                     return (recipe, particle) => {
                         const score = 1;
@@ -23156,7 +23398,7 @@ class MatchParticleByVerb extends Strategy {
 class MatchRecipeByVerb extends Strategy {
     async generate(inputParams) {
         const arc = this.arc;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onParticle(recipe, particle) {
                 if (particle.name) {
                     // Particle already has explicit name.
@@ -23354,7 +23596,7 @@ class MatchRecipeByVerb extends Strategy {
 class AddMissingHandles extends Strategy {
     // TODO: move generation to use an async generator.
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onRecipe(recipe) {
                 // Don't add use handles while there are outstanding constraints
                 if (recipe.connectionConstraints.length > 0) {
@@ -23387,7 +23629,7 @@ class AddMissingHandles extends Strategy {
 // Copyright (c) 2017 Google Inc. All rights reserved.
 class CreateDescriptionHandle extends Strategy {
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandleConnection(recipe, handleConnection) {
                 if (handleConnection.handle) {
                     return undefined;
@@ -23436,7 +23678,7 @@ class SearchTokensToParticles extends Strategy {
         super(arc, options);
         const thingByToken = {};
         const thingByPhrase = {};
-        arc.context.particles.forEach(p => {
+        arc.context.allParticles.forEach(p => {
             this._addThing(p.name, { spec: p }, thingByToken, thingByPhrase);
             p.verbs.forEach(verb => this._addThing(verb, { spec: p }, thingByToken, thingByPhrase));
         });
@@ -23536,7 +23778,7 @@ class SearchTokensToParticles extends Strategy {
     }
     async generate(inputParams) {
         await this.walker.recipeIndex.ready;
-        return Recipe.over(this.getResults(inputParams), this.walker, this);
+        return Strategizer.over(this.getResults(inputParams), this.walker, this);
     }
 }
 
@@ -23635,7 +23877,7 @@ class GroupHandleConnections extends Strategy {
         return this._walker;
     }
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), this.walker, this);
+        return Strategizer.over(this.getResults(inputParams), this.walker, this);
     }
 }
 
@@ -23646,7 +23888,7 @@ class GroupHandleConnections extends Strategy {
  */
 class MatchFreeHandlesToConnections extends Strategy {
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandle(recipe, handle) {
                 if (handle.connections.length > 0) {
                     return;
@@ -23700,7 +23942,7 @@ class DeviceInfo {
 // Copyright (c) 2017 Google Inc. All rights reserved.
 class NameUnnamedConnections extends Strategy {
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandleConnection(recipe, handleConnection) {
                 if (handleConnection.name) {
                     // it is already named.
@@ -23739,7 +23981,7 @@ class SearchTokensToHandles extends Strategy {
             stores = stores.filter(store => !handle.recipe.handles.find(handle => handle.id === store.id));
             return stores.map(store => ({ store, fate, token }));
         };
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandle(recipe, handle) {
                 if (!recipe.search || recipe.search.unresolvedTokens.length === 0) {
                     return undefined;
@@ -23769,7 +24011,7 @@ class SearchTokensToHandles extends Strategy {
 // Copyright (c) 2017 Google Inc. All rights reserved.
 class CreateHandleGroup extends Strategy {
     async generate(inputParams) {
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onRecipe(recipe, result) {
                 // Resolve constraints before assuming connections are free.
                 if (recipe.connectionConstraints.length > 0)
@@ -23826,14 +24068,14 @@ class CreateHandleGroup extends Strategy {
 class FindHostedParticle extends Strategy {
     async generate(inputParams) {
         const arc = this.arc;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             onHandleConnection(recipe, connection) {
                 if (connection.direction !== 'host' || connection.handle)
                     return undefined;
                 assert$1(connection.type instanceof InterfaceType);
                 const iface = connection.type;
                 const results = [];
-                for (const particle of arc.context.particles) {
+                for (const particle of arc.context.allParticles) {
                     // This is what interfaceInfo.particleMatches() does, but we also do
                     // canEnsureResolved at the end:
                     const ifaceClone = iface.interfaceInfo.cloneWithResolutions(new Map());
@@ -23876,7 +24118,7 @@ class CoalesceRecipes extends Strategy {
         const arc = this.arc;
         const index = this.recipeIndex;
         await index.ready;
-        return Recipe.over(this.getResults(inputParams), new class extends Walker {
+        return Strategizer.over(this.getResults(inputParams), new class extends Walker {
             // Find a provided slot for unfulfilled consume connection.
             onSlotConnection(recipe, slotConnection) {
                 if (slotConnection.isResolved()) {
@@ -23899,6 +24141,10 @@ class CoalesceRecipes extends Strategy {
                         continue;
                     if (RecipeUtil.matchesRecipe(arc.activeRecipe, providedSlot.recipe)) {
                         // skip candidate recipe, if matches the shape of the arc's active recipe
+                        continue;
+                    }
+                    if (RecipeUtil.matchesRecipe(recipe, providedSlot.recipe)) {
+                        // skip candidate recipe, if matches the shape of the currently explored recipe
                         continue;
                     }
                     results.push((recipe, slotConnection) => {
@@ -24056,13 +24302,14 @@ class Relevance {
     constructor() {
         // stores a copy of arc.getVersionByStore
         this.versionByStore = {};
+        // public for testing
         this.relevanceMap = new Map();
     }
     static create(arc, recipe) {
         const relevance = new Relevance();
         const versionByStore = arc.getVersionByStore({ includeArc: true, includeContext: true });
         recipe.handles.forEach(handle => {
-            if (handle.id) {
+            if (handle.id && versionByStore[handle.id] !== undefined) {
                 relevance.versionByStore[handle.id] = versionByStore[handle.id];
             }
         });
@@ -24143,38 +24390,751 @@ class Relevance {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
+class Suggestion {
+    constructor(plan, hash, rank, versionByStore) {
+        // TODO: update Description class to be serializable.
+        this.descriptionByModality = {};
+        this.versionByStore = {};
+        // List of search resolved token groups, this suggestion corresponds to.
+        this.searchGroups = [];
+        assert$1(plan, `plan cannot be null`);
+        assert$1(hash, `hash cannot be null`);
+        this.plan = plan;
+        this.planString = this.plan.toString();
+        this.hash = hash;
+        this.rank = rank;
+        this.versionByStore = versionByStore;
+        // TODO(mmandlis): backward compatility for existing suggestions that include undefined
+        // versions. Code can be deleted, after we upgrade above 0_6 or wipe out the storage.
+        for (const store in this.versionByStore) {
+            if (this.versionByStore[store] === undefined) {
+                delete this.versionByStore[store];
+            }
+        }
+    }
+    static create(plan, hash, relevance) {
+        assert$1(plan, `plan cannot be null`);
+        assert$1(hash, `hash cannot be null`);
+        assert$1(relevance, `relevance cannot be null`);
+        const suggestion = new Suggestion(plan, hash, relevance.calcRelevanceScore(), relevance.versionByStore);
+        suggestion.setSearch(plan.search);
+        return suggestion;
+    }
+    get descriptionText() {
+        return this.getDescription('text');
+    }
+    getDescription(modality) {
+        assert$1(this.descriptionByModality[modality], `No description for modality '${modality}'`);
+        return this.descriptionByModality[modality];
+    }
+    setDescription(description, modality, descriptionFormatter = DescriptionFormatter) {
+        this.descriptionByModality['text'] = description.getRecipeSuggestion();
+        for (const planModality of this.plan.modality.names) {
+            if (modality.names.includes(planModality)) {
+                this.descriptionByModality[planModality] =
+                    description.getRecipeSuggestion(descriptionFormatter);
+            }
+        }
+    }
+    isEquivalent(other) {
+        return (this.hash === other.hash) && (this.descriptionText === other.descriptionText);
+    }
+    static compare(s1, s2) {
+        return s2.rank - s1.rank;
+    }
+    hasSearch(search) {
+        const tokens = search.split(' ');
+        return this.searchGroups.some(group => tokens.every(token => group.includes(token)));
+    }
+    setSearch(search) {
+        this.searchGroups = [];
+        if (search) {
+            this._addSearch(search.resolvedTokens);
+        }
+    }
+    mergeSearch(suggestion) {
+        let updated = false;
+        for (const other of suggestion.searchGroups) {
+            if (this._addSearch(other)) {
+                if (this.searchGroups.length === 1) {
+                    this.searchGroups.push(['']);
+                }
+                updated = true;
+            }
+        }
+        this.searchGroups.sort();
+        return updated;
+    }
+    _addSearch(searchGroup) {
+        const equivalentGroup = (group, otherGroup) => {
+            return group.length === otherGroup.length &&
+                group.every(token => otherGroup.includes(token));
+        };
+        if (!this.searchGroups.find(group => equivalentGroup(group, searchGroup))) {
+            this.searchGroups.push(searchGroup);
+            return true;
+        }
+        return false;
+    }
+    toLiteral() {
+        return {
+            plan: this.planString,
+            hash: this.hash,
+            rank: this.rank,
+            // Needs to JSON.strigify because store IDs may contain invalid FB key symbols.
+            versionByStore: JSON.stringify(this.versionByStore),
+            searchGroups: this.searchGroups,
+            descriptionByModality: this.descriptionByModality
+        };
+    }
+    static async fromLiteral({ plan, hash, rank, versionByStore, searchGroups, descriptionByModality }, { context, loader }) {
+        const manifest = await Manifest.parse(plan, { loader, context, fileName: '' });
+        assert$1(manifest.recipes.length === 1);
+        const recipe = manifest.recipes[0];
+        assert$1(recipe.normalize({}), `can't normalize deserialized suggestion: ${plan}`);
+        const suggestion = new Suggestion(recipe, hash, rank, JSON.parse(versionByStore || '{}'));
+        suggestion.searchGroups = searchGroups || [];
+        suggestion.descriptionByModality = descriptionByModality;
+        return suggestion;
+    }
+    async instantiate(arc) {
+        // For now shell is responsible for creating and setting the new arc.
+        assert$1(arc, `Cannot instantiate suggestion without and arc`);
+        const plan = await this.getResolvedPlan(arc);
+        assert$1(plan && plan.isResolved(), `can't resolve plan: ${this.plan.toString({ showUnresolved: true })}`);
+        return arc.instantiate(plan);
+    }
+    async getResolvedPlan(arc) {
+        if (this.plan.isResolved()) {
+            return this.plan;
+        }
+        // TODO(mmandlis): Is this still needed? Find out why and fix.
+        const recipeResolver = new RecipeResolver(arc);
+        return recipeResolver.resolve(this.plan);
+    }
+}
+
 /**
- * Holds container (eg div element) and its additional info.
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class Speculator {
+    constructor(planningResult) {
+        this.suggestionByHash = {};
+        this.speculativeArcs = [];
+        if (planningResult) {
+            for (const suggestion of planningResult.suggestions) {
+                this.suggestionByHash[suggestion.hash] = suggestion;
+            }
+        }
+    }
+    async speculate(arc, plan, hash) {
+        assert$1(plan.isResolved(), `Cannot speculate on an unresolved plan: ${plan.toString({ showUnresolved: true })}`);
+        let suggestion = this.suggestionByHash[hash];
+        if (suggestion) {
+            const arcVersionByStoreId = arc.getVersionByStore({ includeArc: true, includeContext: true });
+            if (plan.handles.every(handle => arcVersionByStoreId[handle.id] === suggestion.versionByStore[handle.id])) {
+                return suggestion;
+            }
+        }
+        const speculativeArc = await arc.cloneForSpeculativeExecution();
+        this.speculativeArcs.push(speculativeArc);
+        const relevance = Relevance.create(arc, plan);
+        await speculativeArc.instantiate(plan);
+        await this.awaitCompletion(relevance, speculativeArc);
+        if (!relevance.isRelevant(plan)) {
+            return null;
+        }
+        const description = await Description.create(speculativeArc, relevance);
+        suggestion = Suggestion.create(plan, hash, relevance);
+        suggestion.setDescription(description, arc.modality, arc.pec.slotComposer ? arc.pec.slotComposer.modalityHandler.descriptionFormatter : undefined);
+        this.suggestionByHash[hash] = suggestion;
+        return suggestion;
+    }
+    async awaitCompletion(relevance, speculativeArc) {
+        const messageCount = speculativeArc.pec.messageCount;
+        relevance.apply(await speculativeArc.pec.idle);
+        // We expect two messages here, one requesting the idle status, and one answering it.
+        if (speculativeArc.pec.messageCount !== messageCount + 2) {
+            return this.awaitCompletion(relevance, speculativeArc);
+        }
+        else {
+            speculativeArc.stop();
+            this.speculativeArcs.splice(this.speculativeArcs.indexOf(speculativeArc, 1));
+            return relevance;
+        }
+    }
+    dispose() {
+        for (const arc of this.speculativeArcs) {
+            arc.dispose();
+        }
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class StrategyExplorerAdapter {
+    static processGenerations(generations, devtoolsChannel, options = {}) {
+        if (devtoolsChannel) {
+            devtoolsChannel.send({
+                messageType: 'generations',
+                messageBody: { results: generations, options },
+            });
+        }
+    }
+}
+
+// Copyright (c) 2018 Google Inc. All rights reserved.
+// This code may only be used under the BSD style license found at
+// http://polymer.github.io/LICENSE.txt
+// Code distributed by Google as part of this project is also
+// subject to an additional IP rights grant found at
+// http://polymer.github.io/PATENTS.txt
+
+// TODO(wkorman): Incorporate debug levels. Consider outputting
+// preamble in the specified color via ANSI escape codes. Consider
+// sharing with similar log factory logic in `xen.js`. See `log-web.js`.
+const _logFactory = (preamble, color, log='log') => {
+  return console[log].bind(console, `(${preamble})`);
+};
+
+const factory = global.debugLevel < 1 ? () => () => {} : _logFactory;
+
+const logFactory = (...args) => factory(...args);
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+const error = logFactory('PlanningResult', '#ff0090', 'error');
+class PlanningResult {
+    constructor(envOptions, store) {
+        this.lastUpdated = new Date(null);
+        this.generations = [];
+        this.contextual = true;
+        this.changeCallbacks = [];
+        this.envOptions = envOptions;
+        assert$1(envOptions.context, `context cannot be null`);
+        assert$1(envOptions.loader, `loader cannot be null`);
+        this.store = store;
+        if (this.store) {
+            this.storeCallback = () => this.load();
+            this.store.on('change', this.storeCallback, this);
+        }
+    }
+    registerChangeCallback(callback) {
+        this.changeCallbacks.push(callback);
+    }
+    onChanged() {
+        for (const callback of this.changeCallbacks) {
+            callback();
+        }
+    }
+    async load() {
+        const value = await this.store.get() || {};
+        if (value.suggestions) {
+            if (await this.fromLiteral(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    async flush() {
+        try {
+            await this.store.set(this.toLiteral());
+        }
+        catch (e) {
+            error('Failed storing suggestions: ', e);
+            throw e;
+        }
+    }
+    async clear() {
+        return this.store.clear();
+    }
+    dispose() {
+        this.changeCallbacks = [];
+        this.store.off('change', this.storeCallback);
+        this.store.dispose();
+    }
+    get suggestions() { return this._suggestions || []; }
+    set suggestions(suggestions) {
+        assert$1(Boolean(suggestions), `Cannot set uninitialized suggestions`);
+        this._suggestions = suggestions;
+    }
+    static formatSerializableGenerations(generations) {
+        // Make a copy of everything and assign IDs to recipes.
+        const idMap = new Map(); // Recipe -> ID
+        let lastID = 0;
+        const assignIdAndCopy = recipe => {
+            idMap.set(recipe, lastID);
+            const { result, score, derivation, description, hash, valid, active, irrelevant } = recipe;
+            const resultString = result.toString({ showUnresolved: true, showInvalid: false, details: '' });
+            const resolved = result.isResolved();
+            return { result: resultString, resolved, score, derivation, description, hash, valid, active, irrelevant, id: lastID++ };
+        };
+        generations = generations.map(pop => ({
+            record: pop.record,
+            generated: pop.generated.map(assignIdAndCopy)
+        }));
+        // Change recipes in derivation to IDs and compute resolved stats.
+        return generations.map(pop => {
+            const population = pop.generated;
+            const record = pop.record;
+            // Adding those here to reuse recipe resolution computation.
+            record.resolvedDerivations = 0;
+            record.resolvedDerivationsByStrategy = {};
+            for (const item of population) {
+                item.derivation = item.derivation.map(derivItem => {
+                    let parent;
+                    let strategy;
+                    if (derivItem.parent) {
+                        parent = idMap.get(derivItem.parent);
+                    }
+                    if (derivItem.strategy) {
+                        strategy = derivItem.strategy.constructor.name;
+                    }
+                    return { parent, strategy };
+                });
+                if (item.resolved) {
+                    record.resolvedDerivations++;
+                    const strategy = item.derivation[0].strategy;
+                    if (record.resolvedDerivationsByStrategy[strategy] === undefined) {
+                        record.resolvedDerivationsByStrategy[strategy] = 0;
+                    }
+                    record.resolvedDerivationsByStrategy[strategy]++;
+                }
+            }
+            const populationMap = {};
+            for (const item of population) {
+                if (populationMap[item.derivation[0].strategy] == undefined) {
+                    populationMap[item.derivation[0].strategy] = [];
+                }
+                populationMap[item.derivation[0].strategy].push(item);
+            }
+            const result = { population: [], record };
+            for (const strategy of Object.keys(populationMap)) {
+                result.population.push({ strategy, recipes: populationMap[strategy] });
+            }
+            return result;
+        });
+    }
+    set({ suggestions, lastUpdated = new Date(), generations = [], contextual = true }) {
+        if (this.isEquivalent(suggestions)) {
+            return false;
+        }
+        this.suggestions = suggestions;
+        this.generations = generations;
+        this.lastUpdated = lastUpdated;
+        this.contextual = contextual;
+        this.onChanged();
+        return true;
+    }
+    merge({ suggestions, lastUpdated = new Date(), generations = [], contextual = true }, arc) {
+        if (this.isEquivalent(suggestions)) {
+            return false;
+        }
+        const jointSuggestions = [];
+        const arcVersionByStore = arc.getVersionByStore({ includeArc: true, includeContext: true });
+        // For all existing suggestions, keep the ones still up to date.
+        for (const currentSuggestion of this.suggestions) {
+            const newSuggestion = suggestions.find(suggestion => suggestion.hash === currentSuggestion.hash);
+            if (newSuggestion) {
+                // Suggestion with this hash exists in the new suggestions list.
+                const upToDateSuggestion = this._getUpToDate(currentSuggestion, newSuggestion, arcVersionByStore);
+                if (upToDateSuggestion) {
+                    jointSuggestions.push(upToDateSuggestion);
+                }
+            }
+            else {
+                // Suggestion with this hash does not exist in the new suggestions list.
+                // Add it to the joint suggestions list, iff it's up-to-date and not in the active recipe.
+                if (this._isUpToDate(currentSuggestion, arcVersionByStore) &&
+                    !RecipeUtil.matchesRecipe(arc.activeRecipe, currentSuggestion.plan)) {
+                    jointSuggestions.push(currentSuggestion);
+                }
+            }
+        }
+        for (const newSuggestion of suggestions) {
+            if (!this.suggestions.find(suggestion => suggestion.hash === newSuggestion.hash)) {
+                if (this._isUpToDate(newSuggestion, arcVersionByStore)) {
+                    jointSuggestions.push(newSuggestion);
+                }
+            }
+        }
+        return this.set({ suggestions: jointSuggestions, lastUpdated, generations, contextual });
+    }
+    _isUpToDate(suggestion, versionByStore) {
+        for (const handle of suggestion.plan.handles) {
+            const arcVersion = versionByStore[handle.id] || 0;
+            const relevanceVersion = suggestion.versionByStore[handle.id] || 0;
+            if (relevanceVersion < arcVersion) {
+                return false;
+            }
+        }
+        return true;
+    }
+    _getUpToDate(currentSuggestion, newSuggestion, versionByStore) {
+        const newUpToDate = this._isUpToDate(newSuggestion, versionByStore);
+        const currentUpToDate = this._isUpToDate(currentSuggestion, versionByStore);
+        if (newUpToDate && currentUpToDate) {
+            const newVersions = newSuggestion.versionByStore;
+            const currentVersions = currentSuggestion.versionByStore;
+            assert$1(Object.keys(newVersions).length === Object.keys(currentVersions).length);
+            if (Object.entries(newVersions).every(([id, newVersion]) => currentVersions[id] !== undefined && newVersion >= currentVersions[id])) {
+                return newSuggestion;
+            }
+            assert$1(Object.entries(currentVersions).every(([id, currentVersion]) => newVersions[id] !== undefined
+                && currentVersion >= newVersions[id]), `Inconsistent store versions for suggestions with hash: ${newSuggestion.hash}`);
+            return currentSuggestion;
+        }
+        if (newUpToDate) {
+            return newSuggestion;
+        }
+        if (currentUpToDate) {
+            return currentSuggestion;
+        }
+        console.warn(`None of the suggestions for hash ${newSuggestion.hash} is up to date.`);
+        return null;
+    }
+    append({ suggestions, lastUpdated = new Date(), generations = [] }) {
+        const newSuggestions = [];
+        let searchUpdated = false;
+        for (const newSuggestion of suggestions) {
+            const existingSuggestion = this.suggestions.find(suggestion => suggestion.isEquivalent(newSuggestion));
+            if (existingSuggestion) {
+                searchUpdated = existingSuggestion.mergeSearch(newSuggestion);
+            }
+            else {
+                newSuggestions.push(newSuggestion);
+            }
+        }
+        if (newSuggestions.length > 0) {
+            this.suggestions = this.suggestions.concat(newSuggestions);
+        }
+        else {
+            if (!searchUpdated) {
+                return false;
+            }
+        }
+        // TODO: filter out generations of other suggestions.
+        this.generations.push(...generations);
+        this.lastUpdated = lastUpdated;
+        this.onChanged();
+        return true;
+    }
+    olderThan(other) {
+        return this.lastUpdated < other.lastUpdated;
+    }
+    isEquivalent(suggestions) {
+        return PlanningResult.isEquivalent(this._suggestions, suggestions);
+    }
+    static isEquivalent(oldSuggestions, newSuggestions) {
+        assert$1(newSuggestions, `New suggestions cannot be null.`);
+        return oldSuggestions &&
+            oldSuggestions.length === newSuggestions.length &&
+            oldSuggestions.every(suggestion => newSuggestions.find(newSuggestion => suggestion.isEquivalent(newSuggestion)));
+    }
+    async fromLiteral({ suggestions, generations, lastUpdated, contextual }) {
+        const deserializedSuggestions = [];
+        for (const suggestion of suggestions) {
+            deserializedSuggestions.push(await Suggestion.fromLiteral(suggestion, this.envOptions));
+        }
+        return this.set({
+            suggestions: deserializedSuggestions,
+            generations: JSON.parse(generations || '[]'),
+            lastUpdated: new Date(lastUpdated),
+            contextual
+        });
+    }
+    toLiteral() {
+        return {
+            suggestions: this.suggestions.map(suggestion => suggestion.toLiteral()),
+            generations: JSON.stringify(this.generations),
+            lastUpdated: this.lastUpdated.toString(),
+            contextual: this.contextual
+        };
+    }
+}
+
+// Copyright (c) 2017 Google Inc. All rights reserved.
+class Planner {
+    // TODO: Use context.arc instead of arc
+    init(arc, { strategies = Planner.AllStrategies, ruleset = Empty, strategyArgs = {}, blockDevtools = false } = {}) {
+        strategyArgs = Object.freeze(Object.assign({}, strategyArgs));
+        this._arc = arc;
+        const strategyImpls = strategies.map(strategy => new strategy(arc, strategyArgs));
+        this.strategizer = new Strategizer(strategyImpls, [], ruleset);
+        this.blockDevtools = blockDevtools;
+    }
+    // Specify a timeout value less than zero to disable timeouts.
+    async plan(timeout, generations = []) {
+        const trace = Tracing.start({ cat: 'planning', name: 'Planner::plan', overview: true, args: { timeout } });
+        timeout = timeout || -1;
+        const allResolved = [];
+        const start = now$1();
+        do {
+            const record = await trace.wait(this.strategizer.generate());
+            const generated = this.strategizer.generated;
+            trace.addArgs({
+                generated: generated.length,
+                generation: this.strategizer.generation
+            });
+            if (generations) {
+                generations.push({ generated, record });
+            }
+            const resolved = this.strategizer.generated
+                .map(individual => individual.result)
+                .filter(recipe => recipe.isResolved());
+            allResolved.push(...resolved);
+            const elapsed = now$1() - start;
+            if (timeout >= 0 && elapsed > timeout) {
+                console.warn(`Planner.plan timed out [elapsed=${Math.floor(elapsed)}ms, timeout=${timeout}ms].`);
+                break;
+            }
+        } while (this.strategizer.generated.length + this.strategizer.terminal.length > 0);
+        trace.end();
+        if (generations.length && !this.blockDevtools && DevtoolsConnection.isConnected) {
+            StrategyExplorerAdapter.processGenerations(PlanningResult.formatSerializableGenerations(generations), DevtoolsConnection.get().forArc(this._arc), { label: 'Planner', keep: true });
+        }
+        return allResolved;
+    }
+    _speculativeThreadCount() {
+        // TODO(wkorman): We'll obviously have to rework the below when we do
+        // speculation in the cloud.
+        const cores = DeviceInfo.hardwareConcurrency();
+        const memory = DeviceInfo.deviceMemory();
+        // For now, allow occupying half of the available cores while constraining
+        // total memory used to at most a quarter of what's available. In the
+        // absence of resource information we just run two in parallel as a
+        // perhaps-low-end-device-oriented balancing act.
+        const minCores = 2;
+        if (!cores || !memory) {
+            return minCores;
+        }
+        // A rough estimate of memory used per thread in gigabytes.
+        const memoryPerThread = 0.125;
+        const quarterMemory = memory / 4;
+        const maxThreadsByMemory = quarterMemory / memoryPerThread;
+        const maxThreadsByCores = cores / 2;
+        return Math.max(minCores, Math.min(maxThreadsByMemory, maxThreadsByCores));
+    }
+    _splitToGroups(items, groupCount) {
+        const groups = [];
+        if (!items || items.length === 0)
+            return groups;
+        const groupItemSize = Math.max(1, Math.floor(items.length / groupCount));
+        let startIndex = 0;
+        for (let i = 0; i < groupCount && startIndex < items.length; i++) {
+            groups.push(items.slice(startIndex, startIndex + groupItemSize));
+            startIndex += groupItemSize;
+        }
+        // Add any remaining items to the end of the last group.
+        if (startIndex < items.length) {
+            groups[groups.length - 1].push(...items.slice(startIndex, items.length));
+        }
+        return groups;
+    }
+    async suggest(timeout, generations = [], speculator) {
+        const trace = Tracing.start({ cat: 'planning', name: 'Planner::suggest', overview: true, args: { timeout } });
+        const plans = await trace.wait(this.plan(timeout, generations));
+        speculator = speculator || new Speculator();
+        // We don't actually know how many threads the VM will decide to use to
+        // handle the parallel speculation, but at least we know we won't kick off
+        // more than this number and so can somewhat limit resource utilization.
+        // TODO(wkorman): Rework this to use a fixed size 'thread' pool for more
+        // efficient work distribution.
+        const threadCount = this._speculativeThreadCount();
+        const planGroups = this._splitToGroups(plans, threadCount);
+        let results = await trace.wait(Promise.all(planGroups.map(async (group, groupIndex) => {
+            const results = [];
+            for (const plan of group) {
+                const hash = ((hash) => hash.substring(hash.length - 4))(await plan.digest());
+                if (RecipeUtil.matchesRecipe(this._arc.activeRecipe, plan)) {
+                    this._updateGeneration(generations, hash, (g) => g.active = true);
+                    continue;
+                }
+                const planTrace = Tracing.start({
+                    cat: 'speculating',
+                    sequence: `speculator_${groupIndex}`,
+                    overview: true,
+                    args: { groupIndex }
+                });
+                const suggestion = await speculator.speculate(this._arc, plan, hash);
+                if (!suggestion) {
+                    this._updateGeneration(generations, hash, (g) => g.irrelevant = true);
+                    planTrace.end({ name: '[Irrelevant suggestion]', hash, groupIndex });
+                    continue;
+                }
+                this._updateGeneration(generations, hash, async (g) => g.description = suggestion.descriptionText);
+                suggestion.groupIndex = groupIndex;
+                results.push(suggestion);
+                planTrace.end({ name: suggestion.descriptionText, args: { rank: suggestion.rank, hash, groupIndex } });
+            }
+            return results;
+        })));
+        results = [].concat(...results);
+        return trace.endWith(results);
+    }
+    _updateGeneration(generations, hash, handler) {
+        if (generations) {
+            generations.forEach(g => {
+                g.generated.forEach(gg => {
+                    if (gg.hash.endsWith(hash)) {
+                        handler(gg);
+                    }
+                });
+            });
+        }
+    }
+}
+// tslint:disable-next-line: variable-name
+Planner.InitializationStrategies = [
+    InitPopulation,
+    InitSearch
+];
+// tslint:disable-next-line: variable-name
+Planner.ResolutionStrategies = [
+    SearchTokensToParticles,
+    SearchTokensToHandles,
+    GroupHandleConnections,
+    CreateHandleGroup,
+    ConvertConstraintsToConnections,
+    MapSlots,
+    AssignHandles,
+    MatchParticleByVerb,
+    MatchRecipeByVerb,
+    NameUnnamedConnections,
+    AddMissingHandles,
+    CreateDescriptionHandle,
+    MatchFreeHandlesToConnections,
+    ResolveRecipe,
+    FindHostedParticle,
+    CoalesceRecipes
+];
+// tslint:disable-next-line: variable-name
+Planner.AllStrategies = Planner.InitializationStrategies.concat(Planner.ResolutionStrategies);
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+/**
+ * Represents a single slot in the rendering system.
+ */
+class SlotContext {
+    constructor(id, sourceSlotConsumer = null) {
+        this.slotConsumers = [];
+        this.id = id;
+        this.sourceSlotConsumer = sourceSlotConsumer;
+    }
+    addSlotConsumer(slotConsumer) {
+        this.slotConsumers.push(slotConsumer);
+        slotConsumer.slotContext = this;
+    }
+    clearSlotConsumers() {
+        this.slotConsumers.forEach(slotConsumer => slotConsumer.slotContext = null);
+        this.slotConsumers.length = 0;
+    }
+}
+/**
+ * Represents a slot created by a transformation particle in the inner arc.
+ *
+ * Render calls for that slot are routed to the transformation particle,
+ * which receives them as innerArcRender calls.
+ *
+ * TODO:
+ * Today startRender/stopRender calls for particles rendering into this slot are governed by the
+ * availability of the container on the transformation particle. This should be optional and only
+ * used if the purpose of the innerArc is rendering to the outer arc. It should be possible for
+ * the particle which doesn't consume a slot to create an inner arc with hosted slots, which
+ * today is not feasible.
+ */
+class HostedSlotContext extends SlotContext {
+    constructor(id, transformationSlotConsumer, storeId) {
+        super(id, transformationSlotConsumer);
+        this._containerAvailable = false;
+        assert$1(transformationSlotConsumer);
+        this.storeId = storeId;
+        transformationSlotConsumer.addHostedSlotContexts(this);
+    }
+    onRenderSlot(consumer, content, handler) {
+        this.sourceSlotConsumer.arc.pec.innerArcRender(this.sourceSlotConsumer.consumeConn.particle, this.sourceSlotConsumer.consumeConn.name, this.id, consumer.formatHostedContent(content));
+    }
+    addSlotConsumer(consumer) {
+        super.addSlotConsumer(consumer);
+        if (this.containerAvailable)
+            consumer.startRender();
+    }
+    get containerAvailable() { return this._containerAvailable; }
+    set containerAvailable(containerAvailable) {
+        if (this._containerAvailable === containerAvailable)
+            return;
+        this._containerAvailable = containerAvailable;
+        for (const consumer of this.slotConsumers) {
+            if (containerAvailable) {
+                consumer.startRender();
+            }
+            else {
+                consumer.stopRender();
+            }
+        }
+    }
+}
+/**
+ * Represents a slot provided by a particle through a provide connection or one of the root slots
+ * provided by the shell. Holds container (eg div element) and its additional info.
  * Must be initialized either with a container (for root slots provided by the shell) or
  * tuple of sourceSlotConsumer and spec (ProvidedSlotSpec) of the slot.
  */
-class SlotContext {
+class ProvidedSlotContext extends SlotContext {
     constructor(id, name, tags, container, spec, sourceSlotConsumer = null) {
+        super(id, sourceSlotConsumer);
         this.tags = [];
-        // The slots consumers rendered into this context.
-        this.slotConsumers = [];
         assert$1(Boolean(container) !== Boolean(spec), `Exactly one of either container or slotSpec may be set`);
         assert$1(Boolean(spec) === Boolean(spec), `Spec and source slot can only be set together`);
-        this.id = id;
         this.name = name;
         this.tags = tags || [];
         this._container = container;
         // The context's accompanying ProvidedSlotSpec (see particle-spec.js).
         // Initialized to a default spec, if the container is one of the shell provided top root-contexts.
         this.spec = spec || new ProvidedSlotSpec({ name });
-        // The slot consumer providing this container (eg div)
-        this.sourceSlotConsumer = sourceSlotConsumer;
         if (this.sourceSlotConsumer) {
-            this.sourceSlotConsumer.providedSlotContexts.push(this);
+            this.sourceSlotConsumer.directlyProvidedSlotContexts.push(this);
         }
         // The list of handles this context is restricted to.
         this.handles = this.spec && this.sourceSlotConsumer
             ? this.spec.handles.map(handle => this.sourceSlotConsumer.consumeConn.particle.connections[handle].handle).filter(a => a !== undefined)
             : [];
     }
+    onRenderSlot(consumer, content, handler, description) {
+        consumer.setContent(content, handler, description);
+    }
     get container() { return this._container; }
+    get containerAvailable() { return !!this._container; }
     static createContextForContainer(id, name, container, tags) {
-        return new SlotContext(id, name, tags, container, null);
+        return new ProvidedSlotContext(id, name, tags, container, null);
     }
     isSameContainer(container) {
         if (this.spec.isSet) {
@@ -24188,7 +25148,7 @@ class SlotContext {
                 Object.keys(this.container).every(key => Object.keys(container).some(newKey => newKey === key)) &&
                 Object.values(this.container).every(currentContainer => Object.values(container).some(newContainer => newContainer === currentContainer));
         }
-        return this.container === container;
+        return (!container && !this.container) || (this.container === container);
     }
     set container(container) {
         if (this.isSameContainer(container)) {
@@ -24199,15 +25159,10 @@ class SlotContext {
         this.slotConsumers.forEach(slotConsumer => slotConsumer.onContainerUpdate(this.container, originalContainer));
     }
     addSlotConsumer(slotConsumer) {
-        this.slotConsumers.push(slotConsumer);
-        slotConsumer.slotContext = this;
+        super.addSlotConsumer(slotConsumer);
         if (this.container) {
             slotConsumer.onContainerUpdate(this.container, null);
         }
-    }
-    clearSlotConsumers() {
-        this.slotConsumers.forEach(slotConsumer => slotConsumer.slotContext = null);
-        this.slotConsumers = [];
     }
 }
 
@@ -24221,12 +25176,14 @@ class SlotContext {
  * http://polymer.github.io/PATENTS.txt
  */
 class SlotConsumer {
-    constructor(consumeConn, containerKind) {
-        this.providedSlotContexts = [];
+    constructor(arc, consumeConn, containerKind) {
+        this.directlyProvidedSlotContexts = [];
+        this.hostedSlotContexts = [];
         // Contains `container` and other modality specific rendering information
         // (eg for `dom`: model, template for dom renderer) by sub id. Key is `undefined` for singleton slot.
         this._renderingBySubId = new Map();
         this.innerContainerBySlotId = {};
+        this.arc = arc;
         this._consumeConn = consumeConn;
         this.containerKind = containerKind;
     }
@@ -24236,7 +25193,30 @@ class SlotConsumer {
     addRenderingBySubId(subId, rendering) {
         this._renderingBySubId.set(subId, rendering);
     }
+    addHostedSlotContexts(context) {
+        context.containerAvailable = Boolean(this.slotContext.containerAvailable);
+        this.hostedSlotContexts.push(context);
+    }
+    get allProvidedSlotContexts() {
+        return [...this.generateProvidedContexts()];
+    }
+    findProvidedContext(predicate) {
+        return this.generateProvidedContexts(predicate).next().value;
+    }
+    *generateProvidedContexts(predicate = (_) => true) {
+        for (const context of this.directlyProvidedSlotContexts) {
+            if (predicate(context))
+                yield context;
+        }
+        for (const hostedContext of this.hostedSlotContexts) {
+            for (const hostedConsumer of hostedContext.slotConsumers) {
+                yield* hostedConsumer.generateProvidedContexts(predicate);
+            }
+        }
+    }
     onContainerUpdate(newContainer, originalContainer) {
+        assert$1(this.slotContext instanceof ProvidedSlotContext, 'Container can only be updated in non-hosted context');
+        const context = this.slotContext;
         if (Boolean(newContainer) !== Boolean(originalContainer)) {
             if (newContainer) {
                 this.startRender();
@@ -24245,13 +25225,14 @@ class SlotConsumer {
                 this.stopRender();
             }
         }
+        this.hostedSlotContexts.forEach(ctx => ctx.containerAvailable = Boolean(newContainer));
         if (newContainer !== originalContainer) {
             const contextContainerBySubId = new Map();
-            if (this.slotContext && this.slotContext.spec.isSet) {
-                Object.keys(this.slotContext.container || {}).forEach(subId => contextContainerBySubId.set(subId, this.slotContext.container[subId]));
+            if (context && context.spec.isSet) {
+                Object.keys(context.container || {}).forEach(subId => contextContainerBySubId.set(subId, context.container[subId]));
             }
             else {
-                contextContainerBySubId.set(undefined, this.slotContext.container);
+                contextContainerBySubId.set(undefined, context.container);
             }
             for (const [subId, container] of contextContainerBySubId) {
                 if (!this._renderingBySubId.has(subId)) {
@@ -24275,11 +25256,11 @@ class SlotConsumer {
         }
     }
     createProvidedContexts() {
-        return this.consumeConn.slotSpec.providedSlots.map(spec => new SlotContext(this.consumeConn.providedSlots[spec.name].id, spec.name, /* tags=*/ [], /* container= */ null, spec, this));
+        return this.consumeConn.slotSpec.providedSlots.map(spec => new ProvidedSlotContext(this.consumeConn.providedSlots[spec.name].id, spec.name, /* tags=*/ [], /* container= */ null, spec, this));
     }
     updateProvidedContexts() {
-        this.providedSlotContexts.forEach(providedContext => {
-            providedContext.container = this.getInnerContainer(providedContext.id);
+        this.allProvidedSlotContexts.forEach(providedContext => {
+            providedContext.container = providedContext.sourceSlotConsumer.getInnerContainer(providedContext.id);
         });
     }
     startRender() {
@@ -24287,7 +25268,7 @@ class SlotConsumer {
             this.startRenderCallback({
                 particle: this.consumeConn.particle,
                 slotName: this.consumeConn.name,
-                providedSlots: new Map(this.providedSlotContexts.map(context => [context.name, context.id])),
+                providedSlots: new Map(this.allProvidedSlotContexts.map(context => [context.name, context.id])),
                 contentTypes: this.constructRenderRequest()
             });
         }
@@ -24297,25 +25278,25 @@ class SlotConsumer {
             this.stopRenderCallback({ particle: this.consumeConn.particle, slotName: this.consumeConn.name });
         }
     }
-    async setContent(content, handler, arc) {
-        if (content && Object.keys(content).length > 0) {
-            if (arc) {
-                content.descriptions = await this.populateHandleDescriptions(arc);
-            }
+    setContent(content, handler, description) {
+        if (content && Object.keys(content).length > 0 && description) {
+            content.descriptions = this.populateHandleDescriptions(description);
         }
         this.eventHandler = handler;
         for (const [subId, rendering] of this.renderings) {
             this.setContainerContent(rendering, this.formatContent(content, subId), subId);
         }
     }
-    async populateHandleDescriptions(arc) {
+    populateHandleDescriptions(description) {
+        if (!this.consumeConn)
+            return null;
         const descriptions = {};
-        await Promise.all(Object.values(this.consumeConn.particle.connections).map(async (handleConn) => {
-            // TODO(mmandlis): convert back to .handle and .name after all recipe files converted to typescript.
-            if (handleConn['handle']) {
-                descriptions[`${handleConn['name']}.description`] = (await arc.description.getHandleDescription(handleConn['handle'])).toString();
+        Object.values(this.consumeConn.particle.connections).map(handleConn => {
+            if (handleConn.handle) {
+                descriptions[`${handleConn.name}.description`] =
+                    description.getHandleDescription(handleConn.handle).toString();
             }
-        }));
+        });
         return descriptions;
     }
     getInnerContainer(slotId) {
@@ -24343,22 +25324,18 @@ class SlotConsumer {
             }
         });
     }
-    isSameContainer(container, contextContainer) { return container === contextContainer; }
-    get hostedConsumers() {
-        return this.providedSlotContexts
-            .filter(context => context.constructor.name === 'HostedSlotContext')
-            .map(context => context.sourceSlotConsumer)
-            .filter(consumer => consumer !== this);
+    isSameContainer(container, contextContainer) {
+        return (!container && !contextContainer) || (container === contextContainer);
     }
     // abstract
-    constructRenderRequest(hostedSlotConsumer = null) { return []; }
+    constructRenderRequest() { return []; }
     dispose() { }
     createNewContainer(contextContainer, subId) { return null; }
     deleteContainer(container) { }
     clearContainer(rendering) { }
     setContainerContent(rendering, content, subId) { }
     formatContent(content, subId) { return null; }
-    formatHostedContent(hostedSlot, content) { return null; }
+    formatHostedContent(content) { return null; }
     static clear(container) { }
 }
 
@@ -24791,17 +25768,13 @@ var IconStyles = `
  */
 const templateByName = new Map();
 class SlotDomConsumer extends SlotConsumer {
-    constructor(consumeConn, containerKind) {
-        super(consumeConn, containerKind);
+    constructor(arc, consumeConn, containerKind) {
+        super(arc, consumeConn, containerKind);
         this._observer = this._initMutationObserver();
     }
-    constructRenderRequest(hostedSlotConsumer) {
+    constructRenderRequest() {
         const request = ['model'];
         const prefixes = [this.templatePrefix];
-        if (hostedSlotConsumer) {
-            prefixes.push(hostedSlotConsumer.consumeConn.particle.name);
-            prefixes.push(hostedSlotConsumer.consumeConn.name);
-        }
         if (!SlotDomConsumer.hasTemplate(prefixes.join('::'))) {
             request.push('template');
         }
@@ -24836,15 +25809,17 @@ class SlotDomConsumer extends SlotConsumer {
         }
     }
     formatContent(content, subId) {
+        assert$1(this.slotContext instanceof ProvidedSlotContext, 'Content formatting can only be done for provided SlotContext');
+        const contextSpec = this.slotContext.spec;
         const newContent = {};
         // Format model.
         if (Object.keys(content).indexOf('model') >= 0) {
             if (content.model) {
                 let formattedModel;
-                if (this.slotContext.spec.isSet && this.consumeConn.slotSpec.isSet) {
+                if (contextSpec.isSet && this.consumeConn.slotSpec.isSet) {
                     formattedModel = this._modelForSetSlotConsumedAsSetSlot(content.model, subId);
                 }
-                else if (this.slotContext.spec.isSet && !this.consumeConn.slotSpec.isSet) {
+                else if (contextSpec.isSet && !this.consumeConn.slotSpec.isSet) {
                     formattedModel = this._modelForSetSlotConsumedAsSingletonSlot(content.model, subId);
                 }
                 else {
@@ -24908,13 +25883,8 @@ class SlotDomConsumer extends SlotConsumer {
     static clear(container) {
         container.textContent = '';
     }
-    static dispose() {
-        // TODO(sjmiles): dumping the template cache causes errors when running parallel arcs
-        // in shell. Disable for now, the corpus of templates is static at this time.
-        // empty template cache
-        if (!SlotDomConsumer['multitenant']) {
-            templateByName.clear();
-        }
+    static clearCache() {
+        templateByName.clear();
     }
     static findRootContainers(topContainer) {
         const containerBySlotId = {};
@@ -24987,14 +25957,14 @@ class SlotDomConsumer extends SlotConsumer {
                 return;
             }
             const slotId = this.getNodeValue(innerContainer, 'slotid');
-            const providedContext = this.providedSlotContexts.find(ctx => ctx.id === slotId);
+            const providedContext = this.findProvidedContext(ctx => ctx.id === slotId);
             if (!providedContext) {
                 console.warn(`Slot ${this.consumeConn.slotSpec.name} has unexpected inner slot ${slotId}`);
                 return;
             }
             const subId = this.getNodeValue(innerContainer, 'subid');
             assert$1(Boolean(subId) === providedContext.spec.isSet, `Sub-id ${subId} for slot ${providedContext.name} doesn't match set spec: ${providedContext.spec.isSet}`);
-            this._initInnerSlotContainer(slotId, subId, innerContainer);
+            providedContext.sourceSlotConsumer._initInnerSlotContainer(slotId, subId, innerContainer);
         });
     }
     // get a value from node that could be an attribute, if not a property
@@ -25065,10 +26035,10 @@ class SlotDomConsumer extends SlotConsumer {
             });
         });
     }
-    formatHostedContent(hostedSlot, content) {
+    formatHostedContent(content) {
         if (content.templateName) {
             if (typeof content.templateName === 'string') {
-                content.templateName = `${hostedSlot.consumeConn.particle.name}::${hostedSlot.consumeConn.name}::${content.templateName}`;
+                content.templateName = `${this.consumeConn.getQualifiedName()}::${content.templateName}`;
             }
             else {
                 // TODO(mmandlis): add support for hosted particle rendering set slot.
@@ -25089,8 +26059,8 @@ class SlotDomConsumer extends SlotConsumer {
  * http://polymer.github.io/PATENTS.txt
  */
 class SuggestDomConsumer extends SlotDomConsumer {
-    constructor(containerKind, suggestion, suggestionContent, eventHandler) {
-        super(/* consumeConn= */ null, containerKind);
+    constructor(arc, containerKind, suggestion, suggestionContent, eventHandler) {
+        super(arc, /* consumeConn= */ null, containerKind);
         this._suggestion = suggestion;
         this._suggestionContent = suggestionContent;
         this._eventHandler = eventHandler;
@@ -25114,11 +26084,11 @@ class SuggestDomConsumer extends SlotDomConsumer {
             this.setContent(this._suggestionContent, this._eventHandler);
         }
     }
-    static render(container, plan, content) {
+    static render(arc, container, plan, content) {
         const suggestionContainer = Object.assign(document.createElement('suggestion-element'), { plan });
         container.appendChild(suggestionContainer, container.firstElementChild);
         const rendering = { container: suggestionContainer, model: content.model };
-        const consumer = new SlotDomConsumer();
+        const consumer = new SlotDomConsumer(arc);
         consumer.addRenderingBySubId(undefined, rendering);
         consumer.eventHandler = (() => { });
         consumer._stampTemplate(rendering, consumer.createTemplateElement(content.template));
@@ -25136,70 +26106,62 @@ class SuggestDomConsumer extends SlotDomConsumer {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-
 class MockSlotDomConsumer extends SlotDomConsumer {
-  constructor(consumeConn) {
-    super(consumeConn);
-    this._content = {};
-    this.contentAvailable = new Promise(resolve => this._contentAvailableResolve = resolve);
-  }
-
-  async setContent(content, handler) {
-    await super.setContent(content, handler);
-
-    // Mimics the behaviour of DomSlotConsumer::setContent, where template is only set at first,
-    // and model is overriden every time.
-    if (content) {
-      this._content.templateName = content.templateName;
-      if (content.template) {
-        this._content.template = content.template;
-      }
-      this._content.model = content.model;
-      this._contentAvailableResolve();
-    } else {
-      this._content = {};
+    constructor(arc, consumeConn) {
+        super(arc, consumeConn);
+        this._content = {};
+        this.contentAvailable = new Promise(resolve => this._contentAvailableResolve = resolve);
     }
-  }
-
-  createNewContainer(container, subId) {
-    return container;
-  }
-
-  isSameContainer(container, contextContainer) {
-    return container == contextContainer;
-  }
-
-  getInnerContainer(slotId) {
-    const model = this.renderings.map(([subId, {model}]) => model)[0];
-    const providedContext = this.providedSlotContexts.find(ctx => ctx.id === slotId);
-    if (!providedContext) {
-      console.warn(`Cannot find provided spec for ${slotId} in ${this.consumeConn.getQualifiedName()}`);
-      return;
+    setContent(content, handler, description) {
+        super.setContent(content, handler);
+        // Mimics the behaviour of DomSlotConsumer::setContent, where template is only set at first,
+        // and model is overriden every time.
+        if (content) {
+            this._content.templateName = content.templateName;
+            if (content.template) {
+                this._content.template = content.template;
+            }
+            this._content.model = content.model;
+            this._contentAvailableResolve();
+        }
+        else {
+            this._content = {};
+        }
     }
-    if (providedContext.spec.isSet && model && model.items && model.items.models) {
-      const innerContainers = {};
-      for (const itemModel of model.items.models) {
-        assert$1(itemModel.id);
-        innerContainers[itemModel.id] = itemModel.id;
-      }
-      return innerContainers;
+    createNewContainer(container, subId) {
+        return container;
     }
-    return slotId;
-  }
-
-  createTemplateElement(template) {
-    return template;
-  }
-
-  static findRootContainers(container) {
-    return container;
-  }
-
-  static clear(container) {}
-  _onUpdate(rendering) {}
-  _stampTemplate(template) {}
-  _initMutationObserver() {}
-  _observe() {}
+    isSameContainer(container, contextContainer) {
+        return container === contextContainer;
+    }
+    getInnerContainer(slotId) {
+        const model = this.renderings.map(([subId, { model }]) => model)[0];
+        const providedContext = this.findProvidedContext(ctx => ctx.id === slotId);
+        if (!providedContext) {
+            console.warn(`Cannot find provided spec for ${slotId} in ${this.consumeConn.getQualifiedName()}`);
+            return;
+        }
+        if (providedContext.spec.isSet && model && model.items && model.items.models) {
+            const innerContainers = {};
+            for (const itemModel of model.items.models) {
+                assert$1(itemModel.id);
+                innerContainers[itemModel.id] = itemModel.id;
+            }
+            return innerContainers;
+        }
+        return slotId;
+    }
+    createTemplateElement(template) {
+        return template;
+    }
+    static findRootContainers(container) {
+        return container;
+    }
+    static clear(container) { }
+    _onUpdate(rendering) { }
+    _stampTemplate(template) { }
+    _initMutationObserver() { return null; }
+    _observe() { }
 }
 
 /**
@@ -25211,30 +26173,80 @@ class MockSlotDomConsumer extends SlotDomConsumer {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-
-// Should this class instead extend SuggestDomConsumer?
-class MockSuggestDomConsumer extends MockSlotDomConsumer {
-  constructor(containerKind, suggestion, suggestionContent, eventHandler) {
-    super(/* consumeConn= */null, containerKind);
-    this._suggestion = suggestion;
-    this._suggestionContent = suggestionContent.template ? suggestionContent : {
-      template: `<dummy-suggestion>${suggestionContent}</dummy-element>`,
-      templateName: 'dummy-suggestion',
-      model: {}
-    };
-    this._setContentPromise = null;
-  }
-
-  get suggestion() { return this._suggestion; }
-  get templatePrefix() { return 'suggest'; }
-
-  onContainerUpdate(container, originalContainer) {
-    super.onContainerUpdate(container, originalContainer);
-
-    if (container) {
-      this._setContentPromise = this.setContent(this._suggestionContent, this._eventHandler);
+class MockSuggestDomConsumer extends SuggestDomConsumer {
+    constructor(arc, containerKind, suggestion, suggestionContent, eventHandler) {
+        super(arc, containerKind, suggestion, suggestionContent, eventHandler);
+        this._suggestion = suggestion;
+        this._suggestionContent = suggestionContent.template ? suggestionContent : {
+            template: `<dummy-suggestion>${suggestionContent}</dummy-element>`,
+            templateName: 'dummy-suggestion',
+            model: {}
+        };
+        this._setContentPromise = null;
+        this._content = {};
+        this.contentAvailable = new Promise(resolve => this._contentAvailableResolve = resolve);
     }
-  }
+    get suggestion() { return this._suggestion; }
+    get templatePrefix() { return 'suggest'; }
+    onContainerUpdate(container, originalContainer) {
+        super.onContainerUpdate(container, originalContainer);
+        if (container) {
+            this.setContent(this._suggestionContent, this._eventHandler);
+        }
+    }
+    static render(arc, container, plan, content) {
+        return undefined;
+    }
+    async setContent(content, handler) {
+        await super.setContent(content, handler);
+        // Mimics the behaviour of DomSlotConsumer::setContent, where template is only set at first,
+        // and model is overriden every time.
+        if (content) {
+            this._content.templateName = content.templateName;
+            if (content.template) {
+                this._content.template = content.template;
+            }
+            this._content.model = content.model;
+            this._contentAvailableResolve();
+        }
+        else {
+            this._content = {};
+        }
+    }
+    createNewContainer(container, subId) {
+        return container;
+    }
+    isSameContainer(container, contextContainer) {
+        return container === contextContainer;
+    }
+    getInnerContainer(slotId) {
+        const model = this.renderings.map(([subId, { model }]) => model)[0];
+        const providedContext = this.findProvidedContext(ctx => ctx.id === slotId);
+        if (!providedContext) {
+            console.warn(`Cannot find provided spec for ${slotId} in ${this.consumeConn.getQualifiedName()}`);
+            return;
+        }
+        if (providedContext.spec.isSet && model && model.items && model.items.models) {
+            const innerContainers = {};
+            for (const itemModel of model.items.models) {
+                assert$1(itemModel.id);
+                innerContainers[itemModel.id] = itemModel.id;
+            }
+            return innerContainers;
+        }
+        return slotId;
+    }
+    createTemplateElement(template) {
+        return template;
+    }
+    static findRootContainers(container) {
+        return container;
+    }
+    static clear(container) { }
+    _onUpdate(rendering) { }
+    _stampTemplate(template) { }
+    _initMutationObserver() { return null; }
+    _observe() { }
 }
 
 /**
@@ -25254,24 +26266,17 @@ class DescriptionDomFormatter extends DescriptionFormatter {
     _isSelectedDescription(desc) {
         return super._isSelectedDescription(desc) || (!!desc.template && !!desc.model);
     }
-    _populateParticleDescription(particle, descriptionByName) {
-        const result = super._populateParticleDescription(particle, descriptionByName);
-        if (descriptionByName['_template_']) {
-            return Object.assign({}, result, { template: descriptionByName['_template_'], model: JSON.parse(descriptionByName['_model_']) });
-        }
-        return result;
-    }
-    async _combineSelectedDescriptions(selectedDescriptions, options) {
+    _combineSelectedDescriptions(selectedDescriptions, options) {
         const suggestionByParticleDesc = new Map();
         for (const particleDesc of selectedDescriptions) {
             if (this.seenParticles.has(particleDesc._particle)) {
                 continue;
             }
             let { template, model } = this._retrieveTemplateAndModel(particleDesc, suggestionByParticleDesc.size, options || {});
-            const success = await Promise.all(Object.keys(model).map(async (tokenKey) => {
+            const success = Object.keys(model).map(tokenKey => {
                 const tokens = this._initSubTokens(model[tokenKey], particleDesc);
-                return (await Promise.all(tokens.map(async (token) => {
-                    const tokenValue = await this.tokenToString(token);
+                return tokens.map(token => {
+                    const tokenValue = this.tokenToString(token);
                     if (tokenValue == undefined) {
                         return false;
                     }
@@ -25289,8 +26294,8 @@ class DescriptionDomFormatter extends DescriptionFormatter {
                         model[newTokenKey] = tokenValue;
                     }
                     return true;
-                }))).every(t => !!t);
-            }));
+                }).every(t => !!t);
+            });
             if (success.every(s => !!s)) {
                 suggestionByParticleDesc.set(particleDesc, { template, model });
             }
@@ -25311,8 +26316,11 @@ class DescriptionDomFormatter extends DescriptionFormatter {
         }
     }
     _retrieveTemplateAndModel(particleDesc, index, options) {
-        if (particleDesc.template && particleDesc.model) {
-            return { template: particleDesc.template, model: particleDesc.model };
+        if (particleDesc['_template_'] && particleDesc['_model_']) {
+            return {
+                template: particleDesc['_template_'],
+                model: JSON.parse(particleDesc['_model_'])
+            };
         }
         assert$1(particleDesc.pattern, 'Description must contain template and model, or pattern');
         let template = '';
@@ -25356,7 +26364,7 @@ class DescriptionDomFormatter extends DescriptionFormatter {
         return sentence;
     }
     _joinDescriptions(descs) {
-        // // If all tokens are strings, just join them.
+        // If all tokens are strings, just join them.
         if (descs.every(desc => typeof desc === 'string')) {
             return super._joinDescriptions(descs);
         }
@@ -25446,8 +26454,8 @@ class DescriptionDomFormatter extends DescriptionFormatter {
             model: { [`${handleName}FirstName`]: firstValue.rawData.name }
         };
     }
-    _formatSingleton(handleName, value, handleDescription) {
-        const formattedValue = super._formatSingleton(handleName, value, handleDescription);
+    _formatSingleton(handleName, value) {
+        const formattedValue = super._formatSingleton(handleName, value);
         if (formattedValue) {
             return {
                 template: `<b>{{${handleName}Var}}</b>`,
@@ -25458,1729 +26466,17 @@ class DescriptionDomFormatter extends DescriptionFormatter {
     }
 }
 
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class Modality {
-    constructor(name, slotConsumerClass, suggestionConsumerClass, descriptionFormatter) {
-        this.name = name;
+class ModalityHandler {
+    constructor(slotConsumerClass, suggestionConsumerClass, descriptionFormatter) {
         this.slotConsumerClass = slotConsumerClass;
         this.suggestionConsumerClass = suggestionConsumerClass;
         this.descriptionFormatter = descriptionFormatter;
     }
-    static addModality(name, slotConsumerClass, suggestionConsumerClass, descriptionFormatter) {
-        assert$1(!Modality._modalities[name], `Modality '${name}' already exists`);
-        Modality._modalities[name] = new Modality(name, slotConsumerClass, suggestionConsumerClass, descriptionFormatter);
-        Modality._modalities[`mock-${name}`] =
-            new Modality(name, MockSlotDomConsumer, MockSuggestDomConsumer);
-    }
-    static init() {
-        Object.keys(Modality._modalities).forEach(key => delete Modality._modalities[key]);
-        Modality.addModality('dom', SlotDomConsumer, SuggestDomConsumer, DescriptionDomFormatter);
-        Modality.addModality('dom-touch', SlotDomConsumer, SuggestDomConsumer, DescriptionDomFormatter);
-        Modality.addModality('vr', SlotDomConsumer, SuggestDomConsumer, DescriptionDomFormatter);
-    }
-    static forName(name) {
-        assert$1(Modality._modalities[name], `Unsupported modality ${name}`);
-        return Modality._modalities[name];
+    static createHeadlessHandler() {
+        return new ModalityHandler(MockSlotDomConsumer, MockSuggestDomConsumer);
     }
 }
-Modality._modalities = {};
-Modality.init();
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class Plan {
-    constructor(serialization, particles, handles, slots, modalities) {
-        this.particles = [];
-        this.handles = [];
-        this.slots = [];
-        this.modalities = [];
-        this.serialization = serialization;
-        this.particles = particles;
-        this.handles = handles;
-        this.slots = slots;
-        this.modalities = modalities;
-    }
-    static create(plan) {
-        return new Plan(plan.toString(), plan.particles.map(p => ({ name: p.name })), plan.handles.map(h => ({ id: h.id, tags: h.tags })), plan.slots.map(s => ({ id: s.id, name: s.name, tags: s.tags })), plan.getSupportedModalities());
-    }
-}
-class Suggestion {
-    constructor(plan, hash, rank, versionByStore) {
-        // TODO: update Description class to be serializable.
-        this.descriptionByModality = {};
-        this.versionByStore = {};
-        // List of search resolved token groups, this suggestion corresponds to.
-        this.searchGroups = [];
-        assert$1(plan, `plan cannot be null`);
-        assert$1(hash, `hash cannot be null`);
-        this.plan = plan;
-        this.hash = hash;
-        this.rank = rank;
-        this.versionByStore = versionByStore;
-    }
-    static create(plan, hash, relevance) {
-        assert$1(plan, `plan cannot be null`);
-        assert$1(hash, `hash cannot be null`);
-        assert$1(relevance, `relevance cannot be null`);
-        const suggestion = new Suggestion(Plan.create(plan), hash, relevance.calcRelevanceScore(), relevance.versionByStore);
-        suggestion.setSearch(plan.search);
-        return suggestion;
-    }
-    get descriptionText() {
-        return this.getDescription('text');
-    }
-    getDescription(modality) {
-        assert$1(this.descriptionByModality[modality], `No description for modality '${modality}'`);
-        return this.descriptionByModality[modality];
-    }
-    async setDescription(description) {
-        this.descriptionByModality['text'] = await description.getRecipeSuggestion();
-        for (const modality of this.plan.modalities) {
-            this.descriptionByModality[modality] =
-                await description.getRecipeSuggestion(Modality.forName(modality).descriptionFormatter);
-        }
-    }
-    isEquivalent(other) {
-        return (this.hash === other.hash) && (this.descriptionText === other.descriptionText);
-    }
-    static compare(s1, s2) {
-        return s2.rank - s1.rank;
-    }
-    hasSearch(search) {
-        const tokens = search.split(' ');
-        return this.searchGroups.some(group => tokens.every(token => group.includes(token)));
-    }
-    setSearch(search) {
-        this.searchGroups = [];
-        if (search) {
-            this._addSearch(search.resolvedTokens);
-        }
-    }
-    mergeSearch(suggestion) {
-        let updated = false;
-        for (const other of suggestion.searchGroups) {
-            if (this._addSearch(other)) {
-                if (this.searchGroups.length === 1) {
-                    this.searchGroups.push(['']);
-                }
-                updated = true;
-            }
-        }
-        this.searchGroups.sort();
-        return updated;
-    }
-    _addSearch(searchGroup) {
-        const equivalentGroup = (group, otherGroup) => {
-            return group.length === otherGroup.length &&
-                group.every(token => otherGroup.includes(token));
-        };
-        if (!this.searchGroups.find(group => equivalentGroup(group, searchGroup))) {
-            this.searchGroups.push(searchGroup);
-            return true;
-        }
-        return false;
-    }
-    toLiteral() {
-        return {
-            plan: this.plan,
-            hash: this.hash,
-            rank: this.rank,
-            // Needs to JSON.strigify because store IDs may contain invalid FB key symbols.
-            versionByStore: JSON.stringify(this.versionByStore),
-            searchGroups: this.searchGroups,
-            descriptionByModality: this.descriptionByModality
-        };
-    }
-    static fromLiteral({ plan, hash, rank, versionByStore, searchGroups, descriptionByModality }) {
-        const suggestion = new Suggestion(plan, hash, rank, JSON.parse(versionByStore || '{}'));
-        suggestion.searchGroups = searchGroups || [];
-        suggestion.descriptionByModality = descriptionByModality;
-        return suggestion;
-    }
-    async instantiate(arc) {
-        // For now shell is responsible for creating and setting the new arc.
-        assert$1(arc, `Cannot instantiate suggestion without and arc`);
-        const thePlan = await Suggestion.planFromString(this.plan.serialization, arc);
-        return arc.instantiate(thePlan);
-    }
-    // TODO(mmandlis): temporarily used in shell's plan instantiation hack. 
-    // Make private again, once fixed.
-    static async planFromString(planString, arc) {
-        try {
-            const manifest = await Manifest.parse(planString, { loader: arc.loader, context: arc.context, fileName: '' });
-            assert$1(manifest.recipes.length === 1);
-            let plan = manifest.recipes[0];
-            assert$1(plan.normalize({}), `can't normalize deserialized suggestion: ${plan.toString()}`);
-            if (!plan.isResolved()) {
-                const recipeResolver = new RecipeResolver(arc);
-                const resolvedPlan = await recipeResolver.resolve(plan);
-                assert$1(resolvedPlan, `can't resolve plan: ${plan.toString({ showUnresolved: true })}`);
-                if (resolvedPlan) {
-                    plan = resolvedPlan;
-                }
-            }
-            assert$1(manifest.stores.length === 0, `Unexpected stores in suggestion manifest.`);
-            return plan;
-        }
-        catch (e) {
-            console.error(`Failed to parse suggestion ${e}\n${planString}.`);
-        }
-        return null;
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class Speculator {
-    constructor(planningResult) {
-        this.suggestionByHash = {};
-        this.speculativeArcs = [];
-        if (planningResult) {
-            for (const suggestion of planningResult.suggestions) {
-                this.suggestionByHash[suggestion.hash] = suggestion;
-            }
-        }
-    }
-    async speculate(arc, plan, hash) {
-        assert$1(plan.isResolved(), `Cannot speculate on an unresolved plan: ${plan.toString({ showUnresolved: true })}`);
-        let suggestion = this.suggestionByHash[hash];
-        if (suggestion) {
-            const arcVersionByStoreId = arc.getVersionByStore({ includeArc: true, includeContext: true });
-            if (plan.handles.every(handle => arcVersionByStoreId[handle.id] === suggestion.versionByStore[handle.id])) {
-                return suggestion;
-            }
-        }
-        const speculativeArc = await arc.cloneForSpeculativeExecution();
-        this.speculativeArcs.push(speculativeArc);
-        const relevance = Relevance.create(arc, plan);
-        await speculativeArc.instantiate(plan);
-        await this.awaitCompletion(relevance, speculativeArc);
-        if (!relevance.isRelevant(plan)) {
-            return null;
-        }
-        speculativeArc.description.relevance = relevance;
-        suggestion = Suggestion.create(plan, hash, relevance);
-        await suggestion.setDescription(speculativeArc.description);
-        this.suggestionByHash[hash] = suggestion;
-        return suggestion;
-    }
-    async awaitCompletion(relevance, speculativeArc) {
-        const messageCount = speculativeArc.pec.messageCount;
-        relevance.apply(await speculativeArc.pec.idle);
-        // We expect two messages here, one requesting the idle status, and one answering it.
-        if (speculativeArc.pec.messageCount !== messageCount + 2) {
-            return this.awaitCompletion(relevance, speculativeArc);
-        }
-        else {
-            speculativeArc.stop();
-            this.speculativeArcs.splice(this.speculativeArcs.indexOf(speculativeArc, 1));
-            return relevance;
-        }
-    }
-    dispose() {
-        for (const arc of this.speculativeArcs) {
-            arc.dispose();
-        }
-    }
-}
-
-// Copyright (c) 2017 Google Inc. All rights reserved.
-class Planner {
-    // TODO: Use context.arc instead of arc
-    init(arc, { strategies = Planner.AllStrategies, ruleset = Empty, strategyArgs = {} } = {}) {
-        strategyArgs = Object.freeze(Object.assign({}, strategyArgs));
-        this._arc = arc;
-        const strategyImpls = strategies.map(strategy => new strategy(arc, strategyArgs));
-        this.strategizer = new Strategizer(strategyImpls, [], ruleset);
-    }
-    // Specify a timeout value less than zero to disable timeouts.
-    async plan(timeout, generations) {
-        const trace = Tracing.start({ cat: 'planning', name: 'Planner::plan', overview: true, args: { timeout } });
-        timeout = timeout || -1;
-        const allResolved = [];
-        const start = now$1();
-        do {
-            const record = await trace.wait(this.strategizer.generate());
-            const generated = this.strategizer.generated;
-            trace.addArgs({
-                generated: generated.length,
-                generation: this.strategizer.generation
-            });
-            if (generations) {
-                generations.push({ generated, record });
-            }
-            const resolved = this.strategizer.generated
-                .map(individual => individual.result)
-                .filter(recipe => recipe.isResolved());
-            allResolved.push(...resolved);
-            const elapsed = now$1() - start;
-            if (timeout >= 0 && elapsed > timeout) {
-                console.warn(`Planner.plan timed out [elapsed=${Math.floor(elapsed)}ms, timeout=${timeout}ms].`);
-                break;
-            }
-        } while (this.strategizer.generated.length + this.strategizer.terminal.length > 0);
-        trace.end();
-        return allResolved;
-    }
-    _speculativeThreadCount() {
-        // TODO(wkorman): We'll obviously have to rework the below when we do
-        // speculation in the cloud.
-        const cores = DeviceInfo.hardwareConcurrency();
-        const memory = DeviceInfo.deviceMemory();
-        // For now, allow occupying half of the available cores while constraining
-        // total memory used to at most a quarter of what's available. In the
-        // absence of resource information we just run two in parallel as a
-        // perhaps-low-end-device-oriented balancing act.
-        const minCores = 2;
-        if (!cores || !memory) {
-            return minCores;
-        }
-        // A rough estimate of memory used per thread in gigabytes.
-        const memoryPerThread = 0.125;
-        const quarterMemory = memory / 4;
-        const maxThreadsByMemory = quarterMemory / memoryPerThread;
-        const maxThreadsByCores = cores / 2;
-        return Math.max(minCores, Math.min(maxThreadsByMemory, maxThreadsByCores));
-    }
-    _splitToGroups(items, groupCount) {
-        const groups = [];
-        if (!items || items.length === 0)
-            return groups;
-        const groupItemSize = Math.max(1, Math.floor(items.length / groupCount));
-        let startIndex = 0;
-        for (let i = 0; i < groupCount && startIndex < items.length; i++) {
-            groups.push(items.slice(startIndex, startIndex + groupItemSize));
-            startIndex += groupItemSize;
-        }
-        // Add any remaining items to the end of the last group.
-        if (startIndex < items.length) {
-            groups[groups.length - 1].push(...items.slice(startIndex, items.length));
-        }
-        return groups;
-    }
-    async suggest(timeout, generations = [], speculator) {
-        const trace = Tracing.start({ cat: 'planning', name: 'Planner::suggest', overview: true, args: { timeout } });
-        if (!generations && DevtoolsConnection.isConnected)
-            generations = [];
-        const plans = await trace.wait(this.plan(timeout, generations));
-        speculator = speculator || new Speculator();
-        // We don't actually know how many threads the VM will decide to use to
-        // handle the parallel speculation, but at least we know we won't kick off
-        // more than this number and so can somewhat limit resource utilization.
-        // TODO(wkorman): Rework this to use a fixed size 'thread' pool for more
-        // efficient work distribution.
-        const threadCount = this._speculativeThreadCount();
-        const planGroups = this._splitToGroups(plans, threadCount);
-        let results = await trace.wait(Promise.all(planGroups.map(async (group, groupIndex) => {
-            const results = [];
-            for (const plan of group) {
-                const hash = ((hash) => hash.substring(hash.length - 4))(await plan.digest());
-                if (RecipeUtil.matchesRecipe(this._arc.activeRecipe, plan)) {
-                    this._updateGeneration(generations, hash, (g) => g.active = true);
-                    continue;
-                }
-                const planTrace = Tracing.start({
-                    cat: 'speculating',
-                    sequence: `speculator_${groupIndex}`,
-                    overview: true,
-                    args: { groupIndex }
-                });
-                const suggestion = await speculator.speculate(this._arc, plan, hash);
-                if (!suggestion) {
-                    this._updateGeneration(generations, hash, (g) => g.irrelevant = true);
-                    planTrace.end({ name: '[Irrelevant suggestion]', hash, groupIndex });
-                    continue;
-                }
-                this._updateGeneration(generations, hash, async (g) => g.description = suggestion.descriptionText);
-                suggestion.groupIndex = groupIndex;
-                results.push(suggestion);
-                planTrace.end({ name: suggestion.descriptionText, args: { rank: suggestion.rank, hash, groupIndex } });
-            }
-            return results;
-        })));
-        results = [].concat(...results);
-        return trace.endWith(results);
-    }
-    _updateGeneration(generations, hash, handler) {
-        if (generations) {
-            generations.forEach(g => {
-                g.generated.forEach(gg => {
-                    if (gg.hash.endsWith(hash)) {
-                        handler(gg);
-                    }
-                });
-            });
-        }
-    }
-}
-// tslint:disable-next-line: variable-name
-Planner.InitializationStrategies = [
-    InitPopulation,
-    InitSearch
-];
-// tslint:disable-next-line: variable-name
-Planner.ResolutionStrategies = [
-    SearchTokensToParticles,
-    SearchTokensToHandles,
-    GroupHandleConnections,
-    CreateHandleGroup,
-    ConvertConstraintsToConnections,
-    MapSlots,
-    AssignHandles,
-    MatchParticleByVerb,
-    MatchRecipeByVerb,
-    NameUnnamedConnections,
-    AddMissingHandles,
-    CreateDescriptionHandle,
-    MatchFreeHandlesToConnections,
-    ResolveRecipe,
-    FindHostedParticle,
-    CoalesceRecipes
-];
-// tslint:disable-next-line: variable-name
-Planner.AllStrategies = Planner.InitializationStrategies.concat(Planner.ResolutionStrategies);
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class InitialRecipe extends Strategy {
-    constructor(recipe) {
-        super();
-        this.recipe = recipe;
-    }
-    async generate({ generation }) {
-        if (generation !== 0) {
-            return [];
-        }
-        return [{
-                result: this.recipe,
-                score: 1,
-                derivation: [{ strategy: this, parent: undefined }],
-                hash: this.recipe.digest(),
-                valid: Object.isFrozen(this.recipe),
-            }];
-    }
-}
-// Merge the arc manifest and the provided manifest for:
-// - verb substitution.
-// - hosted particle resolution.
-class ArcPlannerInvoker {
-    constructor(arc, arcDevtoolsChannel) {
-        this.arc = arc;
-        this.planner = new Planner();
-        this.planner.init(arc);
-        arcDevtoolsChannel.listen('fetch-strategies', () => arcDevtoolsChannel.send({
-            messageType: 'fetch-strategies-result',
-            messageBody: this.planner.strategizer._strategies.map(a => a.constructor.name)
-        }));
-        arcDevtoolsChannel.listen('invoke-planner', async (msg) => arcDevtoolsChannel.send({
-            messageType: 'invoke-planner-result',
-            messageBody: await this.invokePlanner(msg.messageBody),
-            requestId: msg.requestId
-        }));
-    }
-    findManifestNames(manifest, predicate, fileNames) {
-        // http check to avoid shell created 'in-memory manifest'.
-        if (predicate(manifest) && manifest.fileName.startsWith('http'))
-            fileNames.add(manifest.fileName);
-        for (const child of manifest.imports) {
-            this.findManifestNames(child, predicate, fileNames);
-        }
-    }
-    processManifestError({ message }) {
-        let suggestion = null;
-        const undeclaredParticle = /could not find particle ([A-Z][A-Za-z0-9_]*)\n/.exec(message);
-        if (undeclaredParticle) {
-            const [_, particleName] = undeclaredParticle;
-            const manifestNames = new Set();
-            this.findManifestNames(this.arc.context, m => m._particles[particleName], manifestNames);
-            if (manifestNames.size > 0) {
-                suggestion = {
-                    action: 'import',
-                    fileNames: [...manifestNames]
-                };
-            }
-        }
-        // Add interfaces!
-        // Deduplicate below:
-        const undeclaredType = /Could not resolve type reference to type name '([A-Z][A-Za-z0-9_]*)'\n/.exec(message);
-        if (undeclaredType) {
-            const [_, typeName] = undeclaredType;
-            const manifestNames = new Set();
-            this.findManifestNames(this.arc.context, m => m._schemas[typeName], manifestNames);
-            if (manifestNames.size > 0) {
-                suggestion = {
-                    action: 'import',
-                    fileNames: [...manifestNames]
-                };
-            }
-        }
-        return { error: message, suggestion };
-    }
-    async invokePlanner(msg) {
-        // const strategy = this.planner.strategizer._strategies.find(s => s.constructor.name === msg.strategy);
-        // if (!strategy) return {error: 'could not find strategy'};
-        let manifest;
-        try {
-            manifest = await Manifest.parse(msg.recipe, { loader: this.arc._loader, fileName: 'manifest.manifest' });
-        }
-        catch (error) {
-            return this.processManifestError(error);
-        }
-        if (manifest.recipes.length === 0)
-            return { error: 'No recipes found' };
-        if (manifest.recipes.length > 1)
-            return { error: `More than 1 recipe present, found ${manifest.recipes.length}.` };
-        const recipe = manifest.recipes[0];
-        recipe.normalize();
-        const strategies = Planner.ResolutionStrategies.filter(s => s.name !== 'SearchTokensToParticles' && s.name !== 'SearchTokensToHandles' && s.name !== 'CoalesceRecipes');
-        const strategizer = new Strategizer([
-            new InitialRecipe(recipe),
-            ...strategies.map(S => new S(this.arc))
-        ], [], Empty);
-        const terminal = [];
-        do {
-            await strategizer.generate();
-            terminal.push(...strategizer.terminal);
-        } while (strategizer.generated.length + strategizer.terminal.length > 0);
-        // Surface derivation list, make it possible to show entire strategizing.
-        return { results: terminal.map(({ result }) => {
-                return result.toString({ showUnresolved: true });
-            }) };
-        // return res;
-        // return {result: recipe.toString()};
-        // const results = await strategy.generate({
-        //   generation: 0,
-        //   generated: [{result: recipe, score: 1}],
-        //   population: [{result: recipe, score: 1}],
-        //   terminal: []
-        // });
-        // for (const result of results) {
-        //   result.hash = await result.hash;
-        //   result.derivation = undefined;
-        //   const recipe = result.result;
-        //   result.result = recipe.toString({showUnresolved: true});
-        //   if (!Object.isFrozen(recipe)) {
-        //     const errors = new Map();
-        //     recipe.normalize({errors});
-        //     result.errors = [...errors.keys()].map(thing => ({id: thing.id, error: errors.get(thing)}));
-        //     result.normalized = recipe.toString();
-        //   }
-        // }
-        // return {results};
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class ArcStoresFetcher {
-    constructor(arc, arcDevtoolsChannel) {
-        this.arc = arc;
-        arcDevtoolsChannel.listen('fetch-stores', async () => arcDevtoolsChannel.send({
-            messageType: 'fetch-stores-result',
-            messageBody: await this._listStores()
-        }));
-    }
-    async _listStores() {
-        const find = manifest => {
-            let tags = [...manifest.storeTags];
-            if (manifest.imports) {
-                manifest.imports.forEach(imp => tags = tags.concat(find(imp)));
-            }
-            return tags;
-        };
-        return {
-            arcStores: await this._digestStores(this.arc.storeTags),
-            contextStores: await this._digestStores(find(this.arc.context))
-        };
-    }
-    async _digestStores(stores) {
-        const result = [];
-        for (const [store, tags] of stores) {
-            let value = `(don't know how to dereference)`;
-            if (store.toList) {
-                value = await store.toList();
-            }
-            else if (store.get) {
-                value = await store.get();
-            }
-            result.push({
-                name: store.name,
-                tags: tags ? [...tags] : [],
-                id: store.id,
-                storage: store.storageKey,
-                type: store.type,
-                description: store.description,
-                value
-            });
-        }
-        return result;
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-// Arc-independent handlers for devtools logic.
-DevtoolsConnection.onceConnected.then(devtoolsChannel => {
-    enableTracingAdapter(devtoolsChannel);
-});
-class ArcDebugHandler {
-    constructor(arc) {
-        this.arcDevtoolsChannel = null;
-        // Currently no support for speculative arcs.
-        if (arc.isSpeculative)
-            return;
-        DevtoolsConnection.onceConnected.then(devtoolsChannel => {
-            this.arcDevtoolsChannel = devtoolsChannel.forArc(arc);
-            // Message handles go here.
-            const arcPlannerInvoker = new ArcPlannerInvoker(arc, this.arcDevtoolsChannel);
-            const arcStoresFetcher = new ArcStoresFetcher(arc, this.arcDevtoolsChannel);
-            this.arcDevtoolsChannel.send({ messageType: 'arc-available' });
-        });
-    }
-    recipeInstantiated({ particles }) {
-        if (!this.arcDevtoolsChannel)
-            return;
-        const truncate = ({ id, name }) => ({ id, name });
-        const slotConnections = [];
-        particles.forEach(p => Object.values(p.consumedSlotConnections).forEach(cs => {
-            slotConnections.push({
-                particleId: cs.particle.id,
-                consumed: truncate(cs.targetSlot),
-                provided: Object.values(cs.providedSlots).map(slot => truncate(slot)),
-            });
-        }));
-        this.arcDevtoolsChannel.send({
-            messageType: 'recipe-instantiated',
-            messageBody: { slotConnections }
-        });
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2017 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class Arc {
-    constructor({ id, context, pecFactory, slotComposer, loader, storageKey, storageProviderFactory, speculative }) {
-        this._activeRecipe = new Recipe();
-        // TODO: rename: these are just tuples of {particles, handles, slots, pattern} of instantiated recipes merged into active recipe.
-        this._recipes = [];
-        this.dataChangeCallbacks = new Map();
-        // All the stores, mapped by store ID
-        this.storesById = new Map();
-        // storage keys for referenced handles
-        this.storageKeys = {};
-        // Map from each store to a set of tags. public for debug access
-        this.storeTags = new Map();
-        // Map from each store to its description (originating in the manifest).
-        this.storeDescriptions = new Map();
-        this.instantiatePlanCallbacks = [];
-        this.particleHandleMaps = new Map();
-        // TODO: context should not be optional.
-        this._context = context || new Manifest({ id });
-        // TODO: pecFactory should not be optional. update all callers and fix here.
-        this.pecFactory = pecFactory || FakePecFactory(loader).bind(null);
-        // for now, every Arc gets its own session
-        this.id = Id.newSessionId().fromString(id);
-        this.speculative = !!speculative; // undefined => false
-        this._loader = loader;
-        this.storageKey = storageKey;
-        const pecId = this.generateID();
-        const innerPecPort = this.pecFactory(pecId);
-        this.pec = new ParticleExecutionHost(innerPecPort, slotComposer, this);
-        if (slotComposer) {
-            slotComposer.arc = this;
-        }
-        this.storageProviderFactory = storageProviderFactory || new StorageProviderFactory(this.id);
-        this.arcId = this.storageKey ? this.storageProviderFactory.parseStringAsKey(this.storageKey).arcId : '';
-        this._description = new Description(this);
-        this.debugHandler = new ArcDebugHandler(this);
-    }
-    get loader() {
-        return this._loader;
-    }
-    get description() {
-        return this._description;
-    }
-    get modality() {
-        return this.pec.slotComposer && this.pec.slotComposer.modality;
-    }
-    registerInstantiatePlanCallback(callback) {
-        this.instantiatePlanCallbacks.push(callback);
-    }
-    unregisterInstantiatePlanCallback(callback) {
-        const index = this.instantiatePlanCallbacks.indexOf(callback);
-        if (index >= 0) {
-            this.instantiatePlanCallbacks.splice(index, 1);
-            return true;
-        }
-        return false;
-    }
-    dispose() {
-        this.instantiatePlanCallbacks = [];
-        // TODO: disconnect all assocated store event handlers
-        this.pec.close();
-        if (this.pec.slotComposer) {
-            this.pec.slotComposer.dispose();
-        }
-    }
-    // Returns a promise that spins sending a single `AwaitIdle` message until it
-    // sees no other messages were sent.
-    async _waitForIdle() {
-        let messageCount;
-        do {
-            messageCount = this.pec.messageCount;
-            await this.pec.idle;
-            // We expect two messages here, one requesting the idle status, and one answering it.
-        } while (this.pec.messageCount !== messageCount + 2);
-    }
-    get idle() {
-        if (!this.waitForIdlePromise) {
-            // Store one active completion promise for use by any subsequent callers.
-            // We explicitly want to avoid, for example, multiple simultaneous
-            // attempts to identify idle state each sending their own `AwaitIdle`
-            // message and expecting settlement that will never arrive.
-            this.waitForIdlePromise =
-                this._waitForIdle().then(() => this.waitForIdlePromise = null);
-        }
-        return this.waitForIdlePromise;
-    }
-    get isSpeculative() {
-        return this.speculative;
-    }
-    async _serializeHandle(handle, context, id) {
-        const type = handle.type.getContainedType() || handle.type;
-        if (type instanceof InterfaceType) {
-            context.interfaces += type.interfaceInfo.toString() + '\n';
-        }
-        const key = this.storageProviderFactory.parseStringAsKey(handle.storageKey);
-        const tags = this.storeTags.get(handle) || [];
-        const handleTags = [...tags].map(a => `#${a}`).join(' ');
-        const actualHandle = this.activeRecipe.findHandle(handle.id);
-        const originalId = actualHandle ? actualHandle.originalId : null;
-        let combinedId = `'${handle.id}'`;
-        if (originalId) {
-            combinedId += `!!'${originalId}'`;
-        }
-        switch (key.protocol) {
-            case 'firebase':
-            case 'pouchdb':
-                context.handles += `store ${id} of ${handle.type.toString()} ${combinedId} @${handle.version === null ? 0 : handle.version} ${handleTags} at '${handle.storageKey}'\n`;
-                break;
-            case 'volatile': {
-                // TODO(sjmiles): emit empty data for stores marked `nosync`: shell will supply data
-                const nosync = handleTags.includes('nosync');
-                let serializedData = [];
-                if (!nosync) {
-                    // TODO: include keys in serialized [big]collections?
-                    serializedData = (await handle.toLiteral()).model.map(({ id, value, index }) => {
-                        if (value == null) {
-                            return null;
-                        }
-                        let result;
-                        if (value.rawData) {
-                            result = { $id: id };
-                            for (const field of Object.keys(value.rawData)) {
-                                result[field] = value.rawData[field];
-                            }
-                        }
-                        else {
-                            result = value;
-                        }
-                        if (index !== undefined) {
-                            result.$index = index;
-                        }
-                        return result;
-                    });
-                }
-                if (handle.referenceMode && serializedData.length > 0) {
-                    const storageKey = serializedData[0].storageKey;
-                    if (!context.dataResources.has(storageKey)) {
-                        const storeId = `${id}_Data`;
-                        context.dataResources.set(storageKey, storeId);
-                        // TODO: can't just reach into the store for the backing Store like this, should be an
-                        // accessor that loads-on-demand in the storage objects.
-                        await handle.ensureBackingStore();
-                        await this._serializeHandle(handle.backingStore, context, storeId);
-                    }
-                    const storeId = context.dataResources.get(storageKey);
-                    serializedData.forEach(a => { a.storageKey = storeId; });
-                }
-                context.resources += `resource ${id}Resource\n`;
-                const indent = '  ';
-                context.resources += indent + 'start\n';
-                const data = JSON.stringify(serializedData);
-                context.resources += data.split('\n').map(line => indent + line).join('\n');
-                context.resources += '\n';
-                context.handles += `store ${id} of ${handle.type.toString()} ${combinedId} @${handle.version || 0} ${handleTags} in ${id}Resource\n`;
-                break;
-            }
-            default:
-                throw new Error(`unknown storageKey protocol ${key.protocol}`);
-        }
-    }
-    async _serializeHandles() {
-        const context = { handles: '', resources: '', interfaces: '', dataResources: new Map() };
-        let id = 0;
-        const importSet = new Set();
-        const handlesToSerialize = new Set();
-        const contextSet = new Set(this.context.stores.map(store => store.id));
-        for (const handle of this._activeRecipe.handles) {
-            if (handle.fate === 'map') {
-                importSet.add(this.context.findManifestUrlForHandleId(handle.id));
-            }
-            else {
-                // Immediate value handles have values inlined in the recipe and are not serialized.
-                if (handle.immediateValue)
-                    continue;
-                handlesToSerialize.add(handle.id);
-            }
-        }
-        for (const url of importSet.values()) {
-            context.resources += `import '${url}'\n`;
-        }
-        for (const handle of this._stores) {
-            if (!handlesToSerialize.has(handle.id) || contextSet.has(handle.id)) {
-                continue;
-            }
-            await this._serializeHandle(handle, context, `Store${id++}`);
-        }
-        return context.resources + context.interfaces + context.handles;
-    }
-    _serializeParticles() {
-        const particleSpecs = [];
-        // Particles used directly.
-        particleSpecs.push(...this._activeRecipe.particles.map(entry => entry.spec));
-        // Particles referenced in an immediate mode.
-        particleSpecs.push(...this._activeRecipe.handles
-            .filter(h => h.immediateValue)
-            .map(h => h.immediateValue));
-        const results = [];
-        particleSpecs.forEach(spec => {
-            for (const connection of spec.connections) {
-                if (connection.type instanceof InterfaceType) {
-                    results.push(connection.type.interfaceInfo.toString());
-                }
-            }
-            results.push(spec.toString());
-        });
-        return results.join('\n');
-    }
-    _serializeStorageKey() {
-        if (this.storageKey) {
-            return `storageKey: '${this.storageKey}'\n`;
-        }
-        return '';
-    }
-    async serialize() {
-        await this.idle;
-        return `
-meta
-  name: '${this.id}'
-  ${this._serializeStorageKey()}
-
-${await this._serializeHandles()}
-
-${this._serializeParticles()}
-
-@active
-${this.activeRecipe.toString()}`;
-    }
-    // Writes `serialization` to the ArcInfo child key under the Arc's storageKey.
-    // This does not directly use serialize() as callers may want to modify the
-    // contents of the serialized arc before persisting.
-    async persistSerialization(serialization) {
-        const storage = this.storageProviderFactory;
-        const key = storage.parseStringAsKey(this.storageKey).childKeyForArcInfo();
-        const arcInfoType = new ArcType();
-        const store = await storage.connectOrConstruct('store', arcInfoType, key.toString());
-        store.referenceMode = false;
-        // TODO: storage refactor: make sure set() is available here (or wrap store in a Handle-like adaptor).
-        await store['set'](arcInfoType.newInstance(this.id, serialization));
-    }
-    static async deserialize({ serialization, pecFactory, slotComposer, loader, fileName, context }) {
-        const manifest = await Manifest.parse(serialization, { loader, fileName, context });
-        const arc = new Arc({
-            id: manifest.meta.name,
-            storageKey: manifest.meta.storageKey,
-            slotComposer,
-            pecFactory,
-            loader,
-            storageProviderFactory: manifest.storageProviderFactory,
-            context
-        });
-        await Promise.all(manifest.stores.map(async (store) => {
-            const tags = manifest.storeTags.get(store);
-            if (store instanceof StorageStub) {
-                store = await store.inflate();
-            }
-            arc._registerStore(store, tags);
-        }));
-        const recipe = manifest.activeRecipe.clone();
-        const options = { errors: new Map() };
-        assert$1(recipe.normalize(options), `Couldn't normalize recipe ${recipe.toString()}:\n${[...options.errors.values()].join('\n')}`);
-        await arc.instantiate(recipe);
-        return arc;
-    }
-    get context() {
-        return this._context;
-    }
-    get activeRecipe() { return this._activeRecipe; }
-    get recipes() { return this._recipes; }
-    loadedParticles() {
-        return [...this.particleHandleMaps.values()].map(({ spec }) => spec);
-    }
-    _instantiateParticle(recipeParticle) {
-        recipeParticle.id = this.generateID('particle');
-        const handleMap = { spec: recipeParticle.spec, handles: new Map() };
-        this.particleHandleMaps.set(recipeParticle.id, handleMap);
-        for (const [name, connection] of Object.entries(recipeParticle.connections)) {
-            if (!connection.handle) {
-                assert$1(connection.isOptional);
-                continue;
-            }
-            const handle = this.findStoreById(connection.handle.id);
-            assert$1(handle, `can't find handle of id ${connection.handle.id}`);
-            this._connectParticleToHandle(recipeParticle, name, handle);
-        }
-        // At least all non-optional connections must be resolved
-        assert$1(handleMap.handles.size >= handleMap.spec.connections.filter(c => !c.isOptional).length, `Not all mandatory connections are resolved for {$particle}`);
-        this.pec.instantiate(recipeParticle, handleMap.spec, handleMap.handles);
-    }
-    generateID(component = '') {
-        return this.id.createId(component).toString();
-    }
-    get _stores() {
-        return [...this.storesById.values()];
-    }
-    // Makes a copy of the arc used for speculative execution.
-    async cloneForSpeculativeExecution() {
-        const arc = new Arc({ id: this.generateID().toString(), pecFactory: this.pecFactory, context: this.context, loader: this._loader, speculative: true });
-        const storeMap = new Map();
-        for (const store of this._stores) {
-            const clone = await arc.storageProviderFactory.construct(store.id, store.type, 'volatile');
-            await clone.cloneFrom(store);
-            storeMap.set(store, clone);
-            if (this.storeDescriptions.has(store)) {
-                arc.storeDescriptions.set(clone, this.storeDescriptions.get(store));
-            }
-        }
-        this.particleHandleMaps.forEach((value, key) => {
-            arc.particleHandleMaps.set(key, {
-                spec: value.spec,
-                handles: new Map()
-            });
-            value.handles.forEach(handle => arc.particleHandleMaps.get(key).handles.set(handle.name, storeMap.get(handle)));
-        });
-        const { particles, handles, slots } = this._activeRecipe.mergeInto(arc._activeRecipe);
-        let particleIndex = 0;
-        let handleIndex = 0;
-        let slotIndex = 0;
-        this._recipes.forEach(recipe => {
-            const arcRecipe = { particles: [], handles: [], slots: [], innerArcs: new Map(), patterns: recipe.patterns };
-            recipe.particles.forEach(p => {
-                arcRecipe.particles.push(particles[particleIndex++]);
-                if (recipe.innerArcs.has(p)) {
-                    const thisInnerArc = recipe.innerArcs.get(p);
-                    const transformationParticle = arcRecipe.particles[arcRecipe.particles.length - 1];
-                    const innerArc = { activeRecipe: new Recipe(), recipes: [] };
-                    const innerTuples = thisInnerArc.activeRecipe.mergeInto(innerArc.activeRecipe);
-                    thisInnerArc.recipes.forEach(thisInnerArcRecipe => {
-                        const innerArcRecipe = { particles: [], handles: [], slots: [], innerArcs: new Map() };
-                        let innerIndex = 0;
-                        thisInnerArcRecipe.particles.forEach(thisInnerArcRecipeParticle => {
-                            innerArcRecipe.particles.push(innerTuples.particles[innerIndex++]);
-                        });
-                        innerIndex = 0;
-                        thisInnerArcRecipe.handles.forEach(thisInnerArcRecipeParticle => {
-                            innerArcRecipe.handles.push(innerTuples.handles[innerIndex++]);
-                        });
-                        innerIndex = 0;
-                        thisInnerArcRecipe.slots.forEach(thisInnerArcRecipeParticle => {
-                            innerArcRecipe.slots.push(innerTuples.slots[innerIndex++]);
-                        });
-                        innerArc.recipes.push(innerArcRecipe);
-                    });
-                    arcRecipe.innerArcs.set(transformationParticle, innerArc);
-                }
-            });
-            recipe.handles.forEach(p => {
-                arcRecipe.handles.push(handles[handleIndex++]);
-            });
-            recipe.slots.forEach(p => {
-                arcRecipe.slots.push(slots[slotIndex++]);
-            });
-            arc._recipes.push(arcRecipe);
-        });
-        for (const v of storeMap.values()) {
-            // FIXME: Tags
-            arc._registerStore(v, []);
-        }
-        return arc;
-    }
-    async instantiate(recipe, innerArc = undefined) {
-        assert$1(recipe.isResolved(), `Cannot instantiate an unresolved recipe: ${recipe.toString({ showUnresolved: true })}`);
-        assert$1(recipe.isCompatibleWithModality(this.modality), `Cannot instantiate recipe ${recipe.toString()} with [${recipe.getSupportedModalities()}] modalities in '${this.modality}' arc`);
-        let currentArc = { activeRecipe: this._activeRecipe, recipes: this._recipes };
-        if (innerArc) {
-            const innerArcs = this._recipes.find(r => !!r.particles.find(p => p === innerArc.particle)).innerArcs;
-            if (!innerArcs.has(innerArc.particle)) {
-                innerArcs.set(innerArc.particle, { activeRecipe: new Recipe(), recipes: [] });
-            }
-            currentArc = innerArcs.get(innerArc.particle);
-        }
-        const { handles, particles, slots } = recipe.mergeInto(currentArc.activeRecipe);
-        currentArc.recipes.push({ particles, handles, slots, innerArcs: new Map(), patterns: recipe.patterns });
-        // TODO(mmandlis): Get rid of populating the missing local slot IDs here,
-        // it should be done at planning stage.
-        slots.forEach(slot => slot.id = slot.id || `slotid-${this.generateID()}`);
-        for (const recipeHandle of handles) {
-            if (['copy', 'create'].includes(recipeHandle.fate)) {
-                let type = recipeHandle.type;
-                if (recipeHandle.fate === 'create') {
-                    assert$1(type.maybeEnsureResolved(), `Can't assign resolved type to ${type}`);
-                }
-                type = type.resolvedType();
-                assert$1(type.isResolved(), `Can't create handle for unresolved type ${type}`);
-                const newStore = await this.createStore(type, /* name= */ null, this.generateID(), recipeHandle.tags, recipeHandle.immediateValue ? 'volatile' : null);
-                if (recipeHandle.immediateValue) {
-                    const particleSpec = recipeHandle.immediateValue;
-                    const type = recipeHandle.type;
-                    assert$1(type instanceof InterfaceType && type.interfaceInfo.particleMatches(particleSpec));
-                    const particleClone = particleSpec.clone().toLiteral();
-                    particleClone.id = newStore.id;
-                    // TODO(shans): clean this up when we have interfaces for Variable, Collection, etc.
-                    // tslint:disable-next-line: no-any
-                    await newStore.set(particleClone);
-                }
-                else if (recipeHandle.fate === 'copy') {
-                    const copiedStore = this.findStoreById(recipeHandle.id);
-                    assert$1(copiedStore, `Cannot find store ${recipeHandle.id}`);
-                    assert$1(copiedStore.version !== null, `Copied store ${recipeHandle.id} doesn't have version.`);
-                    await newStore.cloneFrom(copiedStore);
-                    this._tagStore(newStore, this.findStoreTags(copiedStore));
-                    const copiedStoreDesc = this.getStoreDescription(copiedStore);
-                    if (copiedStoreDesc) {
-                        this.storeDescriptions.set(newStore, copiedStoreDesc);
-                    }
-                }
-                recipeHandle.id = newStore.id;
-                recipeHandle.fate = 'use';
-                recipeHandle.storageKey = newStore.storageKey;
-                continue;
-                // TODO: move the call to ParticleExecutionHost's DefineHandle to here
-            }
-            // TODO(shans/sjmiles): This shouldn't be possible, but at the moment the
-            // shell pre-populates all arcs with a set of handles so if a recipe explicitly
-            // asks for one of these there's a conflict. Ideally these will end up as a
-            // part of the context and will be populated on-demand like everything else.
-            if (this.storesById.has(recipeHandle.id)) {
-                continue;
-            }
-            let storageKey = recipeHandle.storageKey;
-            if (!storageKey) {
-                storageKey = this.keyForId(recipeHandle.id);
-            }
-            assert$1(storageKey, `couldn't find storage key for handle '${recipeHandle}'`);
-            const type = recipeHandle.type.resolvedType();
-            assert$1(type.isResolved());
-            const store = await this.storageProviderFactory.connect(recipeHandle.id, type, storageKey);
-            assert$1(store, `store '${recipeHandle.id}' was not found`);
-            this._registerStore(store, recipeHandle.tags);
-        }
-        particles.forEach(recipeParticle => this._instantiateParticle(recipeParticle));
-        if (this.pec.slotComposer) {
-            // TODO: pass slot-connections instead
-            this.pec.slotComposer.initializeRecipe(particles);
-        }
-        if (!this.isSpeculative && !innerArc) {
-            // Note: callbacks not triggered for inner-arc recipe instantiation or speculative arcs.
-            this.instantiatePlanCallbacks.forEach(callback => callback(recipe));
-        }
-        this.debugHandler.recipeInstantiated({ particles });
-    }
-    _connectParticleToHandle(particle, name, targetHandle) {
-        assert$1(targetHandle, 'no target handle provided');
-        const handleMap = this.particleHandleMaps.get(particle.id);
-        assert$1(handleMap.spec.connectionMap.get(name) !== undefined, 'can\'t connect handle to a connection that doesn\'t exist');
-        handleMap.handles.set(name, targetHandle);
-    }
-    async createStore(type, name, id, tags, storageKey = undefined) {
-        assert$1(type instanceof Type, `can't createStore with type ${type} that isn't a Type`);
-        if (type instanceof RelationType) {
-            type = new CollectionType(type);
-        }
-        if (id == undefined) {
-            id = this.generateID();
-        }
-        if (storageKey == undefined && this.storageKey) {
-            storageKey =
-                this.storageProviderFactory.parseStringAsKey(this.storageKey)
-                    .childKeyForHandle(id)
-                    .toString();
-        }
-        // TODO(sjmiles): use `volatile` for nosync stores
-        const hasNosyncTag = tags => tags && ((Array.isArray(tags) && tags.includes('nosync')) || tags === 'nosync');
-        if (storageKey == undefined || hasNosyncTag(tags)) {
-            storageKey = 'volatile';
-        }
-        const store = await this.storageProviderFactory.construct(id, type, storageKey);
-        assert$1(store, `failed to create store with id [${id}]`);
-        store.name = name;
-        this._registerStore(store, tags);
-        return store;
-    }
-    _registerStore(store, tags) {
-        assert$1(!this.storesById.has(store.id), `Store already registered '${store.id}'`);
-        tags = tags || [];
-        tags = Array.isArray(tags) ? tags : [tags];
-        this.storesById.set(store.id, store);
-        this.storeTags.set(store, new Set(tags));
-        this.storageKeys[store.id] = store.storageKey;
-        store.on('change', () => this._onDataChange(), this);
-    }
-    _tagStore(store, tags) {
-        assert$1(this.storesById.has(store.id) && this.storeTags.has(store), `Store not registered '${store.id}'`);
-        const storeTags = this.storeTags.get(store);
-        (tags || []).forEach(tag => storeTags.add(tag));
-    }
-    _onDataChange() {
-        for (const callback of this.dataChangeCallbacks.values()) {
-            callback();
-        }
-    }
-    onDataChange(callback, registration) {
-        this.dataChangeCallbacks.set(registration, callback);
-    }
-    clearDataChange(registration) {
-        this.dataChangeCallbacks.delete(registration);
-    }
-    // Convert a type to a normalized key that we can use for
-    // equality testing.
-    //
-    // TODO: we should be testing the schemas for compatiblity instead of using just the name.
-    // TODO: now that this is only used to implement findStoresByType we can probably replace
-    // the check there with a type system equality check or similar.
-    static _typeToKey(type) {
-        const elementType = type.getContainedType();
-        if (elementType) {
-            const key = this._typeToKey(elementType);
-            if (key) {
-                return `list:${key}`;
-            }
-        }
-        else if (type instanceof EntityType) {
-            return type.entitySchema.name;
-        }
-        else if (type instanceof InterfaceType) {
-            // TODO we need to fix this too, otherwise all handles of interface type will
-            // be of the 'same type' when searching by type.
-            return type.interfaceInfo;
-        }
-        else if (type instanceof TypeVariable && type.isResolved()) {
-            return Arc._typeToKey(type.resolvedType());
-        }
-    }
-    findStoresByType(type, options) {
-        const typeKey = Arc._typeToKey(type);
-        let stores = [...this.storesById.values()].filter(handle => {
-            if (typeKey) {
-                const handleKey = Arc._typeToKey(handle.type);
-                if (typeKey === handleKey) {
-                    return true;
-                }
-            }
-            else {
-                if (type instanceof TypeVariable && !type.isResolved() && handle.type instanceof EntityType) {
-                    return true;
-                }
-                // elementType will only be non-null if type is either Collection or BigCollection; the tag
-                // comparison ensures that handle.type is the same sort of collection.
-                const elementType = type.getContainedType();
-                if (elementType && elementType instanceof TypeVariable && !elementType.isResolved() && type.tag === handle.type.tag) {
-                    return true;
-                }
-            }
-            return false;
-        });
-        if (options && options.tags && options.tags.length > 0) {
-            stores = stores.filter(store => options.tags.filter(tag => !this.storeTags.get(store).has(tag)).length === 0);
-        }
-        // Quick check that a new handle can fulfill the type contract.
-        // Rewrite of this method tracked by https://github.com/PolymerLabs/arcs/issues/1636.
-        return stores.filter(s => !!Handle$1.effectiveType(type, [{ type: s.type, direction: (s.type instanceof InterfaceType) ? 'host' : 'inout' }]));
-    }
-    findStoreById(id) {
-        let store = this.storesById.get(id);
-        if (store == null) {
-            store = this._context.findStoreById(id);
-        }
-        return store;
-    }
-    findStoreTags(store) {
-        if (this.storeTags.has(store)) {
-            return this.storeTags.get(store);
-        }
-        return this._context.findStoreTags(store);
-    }
-    getStoreDescription(store) {
-        assert$1(store, 'Cannot fetch description for nonexistent store');
-        return this.storeDescriptions.get(store) || store.description;
-    }
-    getVersionByStore({ includeArc = true, includeContext = false }) {
-        const versionById = {};
-        if (includeArc) {
-            this.storesById.forEach((handle, id) => versionById[id] = handle.version);
-        }
-        if (includeContext) {
-            this._context.allStores.forEach(handle => versionById[handle.id] = handle.version);
-        }
-        return versionById;
-    }
-    keyForId(id) {
-        return this.storageKeys[id];
-    }
-    stop() {
-        this.pec.stop();
-    }
-    toContextString(options) {
-        const results = [];
-        const stores = [...this.storesById.values()].sort(compareComparables);
-        stores.forEach(store => {
-            results.push(store.toString([...this.storeTags.get(store)]));
-        });
-        // TODO: include stores entities
-        // TODO: include (remote) slots?
-        if (!this._activeRecipe.isEmpty()) {
-            results.push(this._activeRecipe.toString());
-        }
-        return results.join('\n');
-    }
-}
-
-// Copyright (c) 2018 Google Inc. All rights reserved.
-// This code may only be used under the BSD style license found at
-// http://polymer.github.io/LICENSE.txt
-// Code distributed by Google as part of this project is also
-// subject to an additional IP rights grant found at
-// http://polymer.github.io/PATENTS.txt
-
-// TODO(wkorman): Incorporate debug levels. Consider outputting
-// preamble in the specified color via ANSI escape codes. Consider
-// sharing with similar log factory logic in `xen.js`. See `log-web.js`.
-const _logFactory = (preamble, color, log='log') => {
-  return console[log].bind(console, `(${preamble})`);
-};
-
-const factory = global.debugLevel < 1 ? () => () => {} : _logFactory;
-
-const logFactory = (...args) => factory(...args);
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-const error = logFactory('PlanningResult', '#ff0090', 'error');
-class PlanningResult {
-    constructor(store) {
-        this.lastUpdated = new Date(null);
-        this.generations = [];
-        this.contextual = true;
-        this.changeCallbacks = [];
-        this.store = store;
-        if (this.store) {
-            this.storeCallback = () => this.load();
-            this.store.on('change', this.storeCallback, this);
-        }
-    }
-    registerChangeCallback(callback) {
-        this.changeCallbacks.push(callback);
-    }
-    onChanged() {
-        for (const callback of this.changeCallbacks) {
-            callback();
-        }
-    }
-    async load() {
-        assert$1(this.store['get'], 'Unsupported getter in suggestion storage');
-        const value = await this.store['get']() || {};
-        if (value.suggestions) {
-            if (this.fromLiteral(value)) {
-                this.onChanged();
-                return true;
-            }
-        }
-        return false;
-    }
-    async flush() {
-        try {
-            assert$1(this.store['set'], 'Unsupported setter in suggestion storage');
-            await this.store['set'](this.toLiteral());
-        }
-        catch (e) {
-            error('Failed storing suggestions: ', e);
-            throw e;
-        }
-    }
-    async clear() {
-        return this.store['clear']();
-    }
-    dispose() {
-        this.changeCallbacks = [];
-        this.store.off('change', this.storeCallback);
-        this.store.dispose();
-    }
-    get suggestions() { return this._suggestions || []; }
-    set suggestions(suggestions) {
-        assert$1(Boolean(suggestions), `Cannot set uninitialized suggestions`);
-        this._suggestions = suggestions;
-    }
-    static formatSerializableGenerations(generations) {
-        // Make a copy of everything and assign IDs to recipes.
-        const idMap = new Map(); // Recipe -> ID
-        let lastID = 0;
-        const assignIdAndCopy = recipe => {
-            idMap.set(recipe, lastID);
-            const { result, score, derivation, description, hash, valid, active, irrelevant } = recipe;
-            const resultString = result.toString({ showUnresolved: true, showInvalid: false, details: '' });
-            const resolved = result.isResolved();
-            return { result: resultString, resolved, score, derivation, description, hash, valid, active, irrelevant, id: lastID++ };
-        };
-        generations = generations.map(pop => ({
-            record: pop.record,
-            generated: pop.generated.map(assignIdAndCopy)
-        }));
-        // Change recipes in derivation to IDs and compute resolved stats.
-        return generations.map(pop => {
-            const population = pop.generated;
-            const record = pop.record;
-            // Adding those here to reuse recipe resolution computation.
-            record.resolvedDerivations = 0;
-            record.resolvedDerivationsByStrategy = {};
-            population.forEach(item => {
-                item.derivation = item.derivation.map(derivItem => {
-                    let parent;
-                    let strategy;
-                    if (derivItem.parent) {
-                        parent = idMap.get(derivItem.parent);
-                    }
-                    if (derivItem.strategy) {
-                        strategy = derivItem.strategy.constructor.name;
-                    }
-                    return { parent, strategy };
-                });
-                if (item.resolved) {
-                    record.resolvedDerivations++;
-                    const strategy = item.derivation[0].strategy;
-                    if (record.resolvedDerivationsByStrategy[strategy] === undefined) {
-                        record.resolvedDerivationsByStrategy[strategy] = 0;
-                    }
-                    record.resolvedDerivationsByStrategy[strategy]++;
-                }
-            });
-            const populationMap = {};
-            population.forEach(item => {
-                if (populationMap[item.derivation[0].strategy] == undefined) {
-                    populationMap[item.derivation[0].strategy] = [];
-                }
-                populationMap[item.derivation[0].strategy].push(item);
-            });
-            const result = { population: [], record };
-            Object.keys(populationMap).forEach(strategy => {
-                result.population.push({ strategy, recipes: populationMap[strategy] });
-            });
-            return result;
-        });
-    }
-    set({ suggestions, lastUpdated = new Date(), generations = [], contextual = true }) {
-        if (this.isEquivalent(suggestions)) {
-            return false;
-        }
-        this.suggestions = suggestions;
-        this.generations = generations;
-        this.lastUpdated = lastUpdated;
-        this.contextual = contextual;
-        this.onChanged();
-        return true;
-    }
-    append({ suggestions, lastUpdated = new Date(), generations = [] }) {
-        const newSuggestions = [];
-        let searchUpdated = false;
-        for (const newSuggestion of suggestions) {
-            const existingSuggestion = this.suggestions.find(suggestion => suggestion.isEquivalent(newSuggestion));
-            if (existingSuggestion) {
-                searchUpdated = existingSuggestion.mergeSearch(newSuggestion);
-            }
-            else {
-                newSuggestions.push(newSuggestion);
-            }
-        }
-        if (newSuggestions.length > 0) {
-            this.suggestions = this.suggestions.concat(newSuggestions);
-        }
-        else {
-            if (!searchUpdated) {
-                return false;
-            }
-        }
-        // TODO: filter out generations of other suggestions.
-        this.generations.push(...generations);
-        this.lastUpdated = lastUpdated;
-        this.onChanged();
-        return true;
-    }
-    olderThan(other) {
-        return this.lastUpdated < other.lastUpdated;
-    }
-    isEquivalent(suggestions) {
-        return PlanningResult.isEquivalent(this._suggestions, suggestions);
-    }
-    static isEquivalent(oldSuggestions, newSuggestions) {
-        assert$1(newSuggestions, `New suggestions cannot be null.`);
-        return oldSuggestions &&
-            oldSuggestions.length === newSuggestions.length &&
-            oldSuggestions.every(suggestion => newSuggestions.find(newSuggestion => suggestion.isEquivalent(newSuggestion)));
-    }
-    fromLiteral({ suggestions, generations, lastUpdated }) {
-        return this.set({
-            suggestions: suggestions.map(suggestion => Suggestion.fromLiteral(suggestion)).filter(s => s),
-            generations: JSON.parse(generations || '[]'),
-            lastUpdated: new Date(lastUpdated),
-            contextual: suggestions.contextual
-        });
-    }
-    toLiteral() {
-        return {
-            suggestions: this.suggestions.map(suggestion => suggestion.toLiteral()),
-            generations: JSON.stringify(this.generations),
-            lastUpdated: this.lastUpdated.toString(),
-            contextual: this.contextual
-        };
-    }
-}
-
-class SuggestionComposer {
-    constructor(slotComposer) {
-        this._suggestions = [];
-        this._suggestConsumers = [];
-        this._container = slotComposer.findContainerByName('suggestions');
-        this._slotComposer = slotComposer;
-    }
-    get modality() { return this._slotComposer.modality; }
-    clear() {
-        if (this._container) {
-            this.modality.slotConsumerClass.clear(this._container);
-        }
-        this._suggestConsumers.forEach(consumer => consumer.dispose());
-        this._suggestConsumers = [];
-    }
-    setSuggestions(suggestions) {
-        this.clear();
-        const sortedSuggestions = suggestions.sort(Suggestion.compare);
-        for (const suggestion of sortedSuggestions) {
-            // TODO(mmandlis): use modality-appropriate description.
-            const suggestionContent = { template: suggestion.descriptionText };
-            if (!suggestionContent) {
-                throw new Error('No suggestion content available');
-            }
-            if (this._container) {
-                this.modality.suggestionConsumerClass.render(this._container, suggestion, suggestionContent);
-            }
-            this._addInlineSuggestion(suggestion, suggestionContent);
-        }
-    }
-    _addInlineSuggestion(suggestion, suggestionContent) {
-        const remoteSlots = suggestion.plan.slots.filter(s => !!s.id);
-        if (remoteSlots.length !== 1) {
-            return;
-        }
-        const remoteSlot = remoteSlots[0];
-        const context = this._slotComposer.findContextById(remoteSlot.id);
-        if (!context) {
-            throw new Error('Missing context for ' + remoteSlot.id);
-        }
-        if (context.spec.isSet) {
-            // TODO: Inline suggestion in a set slot is not supported yet. Implement!
-            return;
-        }
-        // Don't put suggestions in context that either (1) is a root context, (2) doesn't have
-        // an actual container or (3) is not restricted to specific handles.
-        if (!context.sourceSlotConsumer) {
-            return;
-        }
-        if (context.spec.handles.length === 0) {
-            return;
-        }
-        const handleIds = context.spec.handles.map(handleName => context.sourceSlotConsumer.consumeConn.particle.connections[handleName].handle.id);
-        if (!handleIds.find(handleId => suggestion.plan.handles.find(handle => handle.id === handleId))) {
-            // the suggestion doesn't use any of the handles that the context is restricted to.
-            return;
-        }
-        const suggestConsumer = new this.modality.suggestionConsumerClass(this._slotComposer.containerKind, suggestion, suggestionContent, (eventlet) => {
-            const suggestion = this._suggestions.find(s => s.hash === eventlet.data.key);
-            suggestConsumer.dispose();
-            if (suggestion) {
-                const index = this._suggestConsumers.findIndex(consumer => consumer === suggestConsumer);
-                if (index < 0) {
-                    throw new Error('cannot find suggest slot context');
-                }
-                this._suggestConsumers.splice(index, 1);
-                suggestion.instantiate(this._slotComposer.arc);
-            }
-        });
-        context.addSlotConsumer(suggestConsumer);
-        this._suggestConsumers.push(suggestConsumer);
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class StrategyExplorerAdapter {
-    static processGenerations(generations, devtoolsChannel, options = {}) {
-        devtoolsChannel.send({
-            messageType: 'generations',
-            messageBody: { results: generations, options },
-        });
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class PlanConsumer {
-    constructor(arc, result) {
-        // Callback is triggered when planning results have changed.
-        this.suggestionsChangeCallbacks = [];
-        // Callback is triggered when suggestions visible to the user have changed.
-        this.visibleSuggestionsChangeCallbacks = [];
-        this.suggestionComposer = null;
-        this.currentSuggestions = [];
-        assert$1(arc, 'arc cannot be null');
-        assert$1(result, 'result cannot be null');
-        this.arc = arc;
-        this.result = result;
-        this.suggestFilter = { showAll: false };
-        this.suggestionsChangeCallbacks = [];
-        this.visibleSuggestionsChangeCallbacks = [];
-        this._initSuggestionComposer();
-        this.result.registerChangeCallback(() => this.onSuggestionsChanged());
-    }
-    registerSuggestionsChangedCallback(callback) { this.suggestionsChangeCallbacks.push(callback); }
-    registerVisibleSuggestionsChangedCallback(callback) { this.visibleSuggestionsChangeCallbacks.push(callback); }
-    setSuggestFilter(showAll, search) {
-        assert$1(!showAll || !search);
-        if (this.suggestFilter['showAll'] === showAll && this.suggestFilter['search'] === search) {
-            return;
-        }
-        this.suggestFilter = { showAll, search };
-        this._onMaybeSuggestionsChanged();
-    }
-    onSuggestionsChanged() {
-        this._onSuggestionsChanged();
-        this._onMaybeSuggestionsChanged();
-        if (this.result.generations.length && DevtoolsConnection.isConnected) {
-            StrategyExplorerAdapter.processGenerations(this.result.generations, DevtoolsConnection.get().forArc(this.arc));
-        }
-    }
-    getCurrentSuggestions() {
-        const suggestions = this.result.suggestions.filter(suggestion => suggestion.plan.slots.length > 0
-            && suggestion.plan.modalities.includes(this.arc.modality.name));
-        // `showAll`: returns all suggestions that render into slots.
-        if (this.suggestFilter['showAll']) {
-            // Should filter out suggestions produced by search phrases?
-            return suggestions;
-        }
-        // search filter non empty: match plan search phrase or description text.
-        if (this.suggestFilter['search']) {
-            return suggestions.filter(suggestion => suggestion.descriptionText.toLowerCase().includes(this.suggestFilter['search']) ||
-                suggestion.hasSearch(this.suggestFilter['search']));
-        }
-        return suggestions.filter(suggestion => {
-            const usesHandlesFromActiveRecipe = suggestion.plan.handles.find(handle => {
-                // TODO(mmandlis): find a generic way to exlude system handles (eg Theme),
-                // either by tagging or by exploring connection directions etc.
-                return !!handle.id &&
-                    !!this.arc.activeRecipe.handles.find(activeHandle => activeHandle.id === handle.id);
-            });
-            const usesRemoteNonRootSlots = suggestion.plan.slots.find(slot => {
-                return !slot.name.includes('root') && !slot.tags.includes('root') &&
-                    slot.id && !slot.id.includes('root') &&
-                    Boolean(this.arc.pec.slotComposer.findContextById(slot.id));
-            });
-            const onlyUsesNonRootSlots = !suggestion.plan.slots.find(s => s.name.includes('root') || s.tags.includes('root'));
-            return (usesHandlesFromActiveRecipe && usesRemoteNonRootSlots) || onlyUsesNonRootSlots;
-        });
-    }
-    dispose() {
-        this.suggestionsChangeCallbacks = [];
-        this.visibleSuggestionsChangeCallbacks = [];
-        if (this.suggestionComposer) {
-            this.suggestionComposer.clear();
-        }
-    }
-    _onSuggestionsChanged() {
-        this.suggestionsChangeCallbacks.forEach(callback => callback({ suggestions: this.result.suggestions }));
-    }
-    _onMaybeSuggestionsChanged() {
-        const suggestions = this.getCurrentSuggestions();
-        if (!PlanningResult.isEquivalent(this.currentSuggestions, suggestions)) {
-            this.visibleSuggestionsChangeCallbacks.forEach(callback => callback(suggestions));
-            this.currentSuggestions = suggestions;
-        }
-    }
-    _initSuggestionComposer() {
-        const composer = this.arc.pec.slotComposer;
-        if (composer && composer.findContextById('rootslotid-suggestions')) {
-            this.suggestionComposer = new SuggestionComposer(composer);
-            this.registerVisibleSuggestionsChangedCallback((suggestions) => this.suggestionComposer.setSuggestions(suggestions));
-        }
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class HostedSlotContext extends SlotContext {
-    // This is a context of a hosted slot, can only contain a hosted slot.
-    constructor(id, providedSpec, hostedSlotConsumer) {
-        super(id, providedSpec.name, providedSpec.tags, /* container= */ null, providedSpec, hostedSlotConsumer);
-        assert$1(this.sourceSlotConsumer instanceof HostedSlotConsumer);
-        const hostedSourceSlotConsumer = this.sourceSlotConsumer;
-        if (hostedSourceSlotConsumer.storeId) {
-            // TODO(mmandlis): This up-cast is dangerous. Why do we need to fake a Handle here?
-            this.handles = [{ id: hostedSourceSlotConsumer.storeId }];
-        }
-    }
-}
-
-/**
- * @license
- * Copyright (c) 2018 Google Inc. All rights reserved.
- * This code may only be used under the BSD style license found at
- * http://polymer.github.io/LICENSE.txt
- * Code distributed by Google as part of this project is also
- * subject to an additional IP rights grant found at
- * http://polymer.github.io/PATENTS.txt
- */
-class HostedSlotConsumer extends SlotConsumer {
-    constructor(transformationSlotConsumer, hostedParticleName, hostedSlotName, hostedSlotId, storeId, arc) {
-        super(null, null);
-        this.transformationSlotConsumer = transformationSlotConsumer;
-        this.hostedParticleName = hostedParticleName;
-        this.hostedSlotName = hostedSlotName,
-            this.hostedSlotId = hostedSlotId;
-        // TODO: should this be a list?
-        this.storeId = storeId;
-        this._arc = arc;
-    }
-    get arc() { return this._arc; }
-    get consumeConn() { return this._consumeConn; }
-    set consumeConn(consumeConn) {
-        assert$1(!this._consumeConn, 'Consume connection can be set only once');
-        assert$1(this.hostedSlotId === consumeConn.targetSlot.id, `Expected target slot ${this.hostedSlotId}, but got ${consumeConn.targetSlot.id}`);
-        assert$1(this.hostedParticleName === consumeConn.particle.name, `Expected particle ${this.hostedParticleName} for slot ${this.hostedSlotId}, but got ${consumeConn.particle.name}`);
-        assert$1(this.hostedSlotName === consumeConn.name, `Expected slot ${this.hostedSlotName} for slot ${this.hostedSlotId}, but got ${consumeConn.name}`);
-        this._consumeConn = consumeConn;
-    }
-    async setContent(content, handler, arc) {
-        if (this.renderCallback) {
-            this.renderCallback(this.transformationSlotConsumer.consumeConn.particle, this.transformationSlotConsumer.consumeConn.name, this.hostedSlotId, this.transformationSlotConsumer.formatHostedContent(this, content));
-        }
-        return null;
-    }
-    constructRenderRequest() {
-        return this.transformationSlotConsumer.constructRenderRequest(this);
-    }
-    getInnerContainer(name) {
-        const innerContainer = this.transformationSlotConsumer.getInnerContainer(name);
-        if (innerContainer && this.storeId) {
-            // TODO(shans): clean this up when we have interfaces for Variable, Collection, etc.
-            // tslint:disable-next-line: no-any
-            const subId = this.arc.findStoreById(this.storeId)._stored.id;
-            return innerContainer[subId];
-        }
-        return innerContainer;
-    }
-    createProvidedContexts() {
-        assert$1(this.consumeConn, `Cannot create provided context without consume connection for hosted slot ${this.hostedSlotId}`);
-        return this.consumeConn.slotSpec.providedSlots.map(providedSpec => new HostedSlotContext(this.consumeConn.providedSlots[providedSpec.name].id, providedSpec, this));
-    }
-    updateProvidedContexts() {
-        // The hosted context provided by hosted slots is updated as part of the transformation.
-    }
-}
+ModalityHandler.domHandler = new ModalityHandler(SlotDomConsumer, SuggestDomConsumer, DescriptionDomFormatter);
 
 /**
  * @license
@@ -27194,7 +26490,8 @@ class HostedSlotConsumer extends SlotConsumer {
 class SlotComposer {
     /**
      * |options| must contain:
-     * - modality: the UI modality the slots composer render to (for example: dom).
+     * - modalityName: the UI modality the slot-composer renders to (for example: dom).
+     * - modalityHandler: the handler for UI modality the slot-composer renders to.
      * - rootContainer: the top level container to be used for slots.
      * and may contain:
      * - containerKind: the type of container wrapping each slot-context's container  (for example, div).
@@ -27202,35 +26499,37 @@ class SlotComposer {
     constructor(options) {
         this._consumers = [];
         this._contexts = [];
-        assert$1(options.modality && options.modality.constructor === Modality, `Missing or invalid modality: ${options.modality}`);
+        assert$1(options.modalityHandler && options.modalityHandler.constructor === ModalityHandler, `Missing or invalid modality handler: ${options.modalityHandler}`);
         // TODO: Support rootContext for backward compatibility, remove when unused.
         options.rootContainer = options.rootContainer || options.rootContext || (options.containers || Object).root;
         assert$1((options.rootContainer !== undefined)
             !==
                 (options.noRoot === true), 'Root container is mandatory unless it is explicitly skipped');
         this._containerKind = options.containerKind;
-        this._modality = options.modality;
-        assert$1(this._modality.slotConsumerClass);
+        if (options.modalityName) {
+            this.modality = Modality.create([options.modalityName]);
+        }
+        this.modalityHandler = options.modalityHandler;
         if (options.noRoot) {
             return;
         }
-        const containerByName = options.containers || this._modality.slotConsumerClass.findRootContainers(options.rootContainer) || {};
+        const containerByName = options.containers
+            || this.modalityHandler.slotConsumerClass.findRootContainers(options.rootContainer) || {};
         if (Object.keys(containerByName).length === 0) {
             // fallback to single 'root' slot using the rootContainer.
             containerByName['root'] = options.rootContainer;
         }
         Object.keys(containerByName).forEach(slotName => {
-            this._contexts.push(SlotContext.createContextForContainer(`rootslotid-${slotName}`, slotName, containerByName[slotName], [`${slotName}`]));
+            this._contexts.push(ProvidedSlotContext.createContextForContainer(`rootslotid-${slotName}`, slotName, containerByName[slotName], [`${slotName}`]));
         });
     }
-    get modality() { return this._modality; }
     get consumers() { return this._consumers; }
     get containerKind() { return this._containerKind; }
     getSlotConsumer(particle, slotName) {
         return this.consumers.find(s => s.consumeConn.particle === particle && s.consumeConn.name === slotName);
     }
     findContainerByName(name) {
-        const contexts = this._contexts.filter(context => context.name === name);
+        const contexts = this.findContextsByName(name);
         if (contexts.length === 0) {
             // TODO this is a no-op, but throwing here breaks tests
             console.warn(`No containers for '${name}'`);
@@ -27241,26 +26540,26 @@ class SlotComposer {
         console.warn(`Ambiguous containers for '${name}'`);
         return undefined;
     }
+    findContextsByName(name) {
+        const providedSlotContexts = this._contexts.filter(ctx => ctx instanceof ProvidedSlotContext);
+        return providedSlotContexts.filter(ctx => ctx.name === name);
+    }
     findContextById(slotId) {
         return this._contexts.find(({ id }) => id === slotId);
     }
-    createHostedSlot(transformationParticle, transformationSlotName, hostedParticleName, hostedSlotName, storeId) {
-        const hostedSlotId = this.arc.generateID();
+    createHostedSlot(innerArc, transformationParticle, transformationSlotName, storeId) {
         const transformationSlotConsumer = this.getSlotConsumer(transformationParticle, transformationSlotName);
-        assert$1(transformationSlotConsumer, `Unexpected transformation slot particle ${transformationParticle.name}:${transformationSlotName}, hosted particle ${hostedParticleName}, slot name ${hostedSlotName}`);
-        const hostedSlotConsumer = new HostedSlotConsumer(transformationSlotConsumer, hostedParticleName, hostedSlotName, hostedSlotId, storeId, this.arc);
-        hostedSlotConsumer.renderCallback = this.arc.pec.innerArcRender.bind(this.arc.pec);
-        this._addSlotConsumer(hostedSlotConsumer);
-        const context = this.findContextById(transformationSlotConsumer.consumeConn.targetSlot.id);
-        context.addSlotConsumer(hostedSlotConsumer);
+        assert$1(transformationSlotConsumer, `Transformation particle ${transformationParticle.name} with consumed ${transformationSlotName} not found`);
+        const hostedSlotId = innerArc.generateID();
+        this._contexts.push(new HostedSlotContext(hostedSlotId, transformationSlotConsumer, storeId));
         return hostedSlotId;
     }
     _addSlotConsumer(slot) {
-        slot.startRenderCallback = this.arc.pec.startRender.bind(this.arc.pec);
-        slot.stopRenderCallback = this.arc.pec.stopRender.bind(this.arc.pec);
+        slot.startRenderCallback = slot.arc.pec.startRender.bind(slot.arc.pec);
+        slot.stopRenderCallback = slot.arc.pec.stopRender.bind(slot.arc.pec);
         this._consumers.push(slot);
     }
-    initializeRecipe(recipeParticles) {
+    initializeRecipe(arc, recipeParticles) {
         const newConsumers = [];
         // Create slots for each of the recipe's particles slot connections.
         recipeParticles.forEach(p => {
@@ -27269,25 +26568,10 @@ class SlotComposer {
                     assert$1(!cs.slotSpec.isRequired, `No target slot for particle's ${p.name} required consumed slot: ${cs.name}.`);
                     return;
                 }
-                let slotConsumer = this.consumers.find(slot => slot instanceof HostedSlotConsumer && slot.hostedSlotId === cs.targetSlot.id);
-                let transformationSlotConsumer = null;
-                if (slotConsumer && slotConsumer instanceof HostedSlotConsumer) {
-                    slotConsumer.consumeConn = cs;
-                    transformationSlotConsumer = slotConsumer.transformationSlotConsumer;
-                }
-                else {
-                    slotConsumer = new this._modality.slotConsumerClass(cs, this._containerKind);
-                    newConsumers.push(slotConsumer);
-                }
+                const slotConsumer = new this.modalityHandler.slotConsumerClass(arc, cs, this._containerKind);
                 const providedContexts = slotConsumer.createProvidedContexts();
                 this._contexts = this._contexts.concat(providedContexts);
-                // Slot contexts provided by the HostedSlotConsumer are managed by the transformation.
-                if (transformationSlotConsumer) {
-                    transformationSlotConsumer.providedSlotContexts.push(...providedContexts);
-                    if (transformationSlotConsumer.slotContext.container) {
-                        slotConsumer.startRender();
-                    }
-                }
+                newConsumers.push(slotConsumer);
             });
         });
         // Set context for each of the slots.
@@ -27301,35 +26585,45 @@ class SlotComposer {
     async renderSlot(particle, slotName, content) {
         const slotConsumer = this.getSlotConsumer(particle, slotName);
         assert$1(slotConsumer, `Cannot find slot (or hosted slot) ${slotName} for particle ${particle.name}`);
-        await slotConsumer.setContent(content, async (eventlet) => {
-            this.arc.pec.sendEvent(particle, slotName, eventlet);
+        const description = await Description.create(slotConsumer.arc);
+        slotConsumer.slotContext.onRenderSlot(slotConsumer, content, async (eventlet) => {
+            slotConsumer.arc.pec.sendEvent(particle, slotName, eventlet);
+            // This code is a temporary hack implemented in #2011 which allows to route UI events from
+            // multiplexer to hosted particles. Multiplexer assembles UI from multiple pieces rendered
+            // by hosted particles. Hosted particles can render DOM elements with a key containing a
+            // handle ID of the store, which contains the entity they render. The code below attempts
+            // to find the hosted particle using the store matching the 'key' attribute on the event,
+            // which has been extracted from DOM.
+            // TODO: FIXIT!
             if (eventlet.data && eventlet.data.key) {
-                const hostedConsumers = this.consumers.filter(c => c instanceof HostedSlotConsumer && c.transformationSlotConsumer === slotConsumer);
-                for (const hostedConsumer of hostedConsumers) {
-                    if (hostedConsumer instanceof HostedSlotConsumer && hostedConsumer.storeId) {
-                        const store = this.arc.findStoreById(hostedConsumer.storeId);
+                // We fire off multiple async operations and don't wait.
+                for (const ctx of slotConsumer.hostedSlotContexts) {
+                    if (!ctx.storeId)
+                        continue;
+                    for (const hostedConsumer of ctx.slotConsumers) {
+                        const store = hostedConsumer.arc.findStoreById(ctx.storeId);
                         assert$1(store);
                         // TODO(shans): clean this up when we have interfaces for Variable, Collection, etc
                         // tslint:disable-next-line: no-any
-                        const value = await store.get();
-                        if (value && (value.id === eventlet.data.key)) {
-                            this.arc.pec.sendEvent(hostedConsumer.consumeConn.particle, hostedConsumer.consumeConn.name, eventlet);
-                        }
+                        store.get().then(value => {
+                            if (value && (value.id === eventlet.data.key)) {
+                                hostedConsumer.arc.pec.sendEvent(hostedConsumer.consumeConn.particle, hostedConsumer.consumeConn.name, eventlet);
+                            }
+                        });
                     }
                 }
             }
-        }, this.arc);
+        }, description);
     }
     getAvailableContexts() {
         return this._contexts;
     }
     dispose() {
         this.consumers.forEach(consumer => consumer.dispose());
-        this._modality.slotConsumerClass.dispose();
         this._contexts.forEach(context => {
             context.clearSlotConsumers();
-            if (context.container) {
-                this._modality.slotConsumerClass.clear(context.container);
+            if (context instanceof ProvidedSlotContext && context.container) {
+                this.modalityHandler.slotConsumerClass.clear(context.container);
             }
         });
         this._contexts = this._contexts.filter(c => !c.sourceSlotConsumer);
@@ -27351,7 +26645,7 @@ class RelevantContextRecipes extends Strategy {
         super();
         this._recipes = [];
         for (let recipe of context.allRecipes) {
-            if (modality && recipe.particles.find(p => p.spec && !p.spec.matchModality(modality)) !== undefined) {
+            if (!recipe.isCompatible(modality)) {
                 continue;
             }
             recipe = recipe.clone();
@@ -27389,14 +26683,17 @@ const IndexStrategies = [
     CreateHandleGroup
 ];
 class RecipeIndex {
-    constructor(arc) {
+    constructor(arc, { reportGenerations = true } = {}) {
         this._isReady = false;
         const trace = Tracing.start({ cat: 'indexing', name: 'RecipeIndex::constructor', overview: true });
         const arcStub = new Arc({
             id: 'index-stub',
             context: new Manifest({ id: 'empty-context' }),
             loader: arc.loader,
-            slotComposer: arc.modality ? new SlotComposer({ modality: arc.modality, noRoot: true }) : null,
+            slotComposer: new SlotComposer({
+                modalityHandler: ModalityHandler.createHeadlessHandler(),
+                noRoot: true
+            }),
             // TODO: Not speculative really, figure out how to mark it so DevTools doesn't pick it up.
             speculative: true
         });
@@ -27410,7 +26707,7 @@ class RecipeIndex {
                 const record = await strategizer.generate();
                 generations.push({ record, generated: strategizer.generated });
             } while (strategizer.generated.length + strategizer.terminal.length > 0);
-            if (DevtoolsConnection.isConnected) {
+            if (reportGenerations && DevtoolsConnection.isConnected) {
                 StrategyExplorerAdapter.processGenerations(PlanningResult.formatSerializableGenerations(generations), DevtoolsConnection.get().forArc(arc), { label: 'Index', keep: true });
             }
             const population = strategizer.population;
@@ -27426,8 +26723,8 @@ class RecipeIndex {
             resolve(true);
         }));
     }
-    static create(arc) {
-        return new RecipeIndex(arc);
+    static create(arc, options = {}) {
+        return new RecipeIndex(arc, options);
     }
     get recipes() {
         if (!this._isReady)
@@ -27627,14 +26924,985 @@ class RecipeIndex {
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
+class InitialRecipe extends Strategy {
+    constructor(recipe) {
+        super();
+        this.recipe = recipe;
+    }
+    async generate({ generation }) {
+        if (generation !== 0) {
+            return [];
+        }
+        return [{
+                result: this.recipe,
+                score: 1,
+                derivation: [{ strategy: this, parent: undefined }],
+                hash: this.recipe.digest(),
+                valid: Object.isFrozen(this.recipe),
+            }];
+    }
+}
+class ArcPlannerInvoker {
+    constructor(arc, arcDevtoolsChannel) {
+        this.arc = arc;
+        arcDevtoolsChannel.listen('fetch-strategies', () => arcDevtoolsChannel.send({
+            messageType: 'fetch-strategies-result',
+            messageBody: Planner.AllStrategies.map(s => s.name)
+        }));
+        arcDevtoolsChannel.listen('invoke-planner', async (msg) => arcDevtoolsChannel.send({
+            messageType: 'invoke-planner-result',
+            messageBody: await this.invokePlanner(msg.messageBody.manifest, msg.messageBody.method),
+            requestId: msg.requestId
+        }));
+    }
+    async invokePlanner(manifestString, method) {
+        if (!this.recipeIndex) {
+            this.recipeIndex = RecipeIndex.create(this.arc, { reportGenerations: false });
+            await this.recipeIndex.ready;
+        }
+        let manifest;
+        try {
+            manifest = await Manifest.parse(manifestString, { loader: this.arc._loader, fileName: 'manifest.manifest' });
+        }
+        catch (error) {
+            return this.processManifestError(error);
+        }
+        if (manifest.recipes.length === 0)
+            return { results: [] };
+        if (manifest.recipes.length > 1)
+            return { error: { message: `More than 1 recipe present, found ${manifest.recipes.length}.` } };
+        const recipe = manifest.recipes[0];
+        recipe.normalize();
+        if (method === 'arc' || method === 'arc_coalesce') {
+            return this.multiStrategyRun(recipe, method);
+        }
+        else {
+            return this.singleStrategyRun(recipe, method);
+        }
+    }
+    async multiStrategyRun(recipe, method) {
+        const strategies = method === 'arc_coalesce' ? Planner.ResolutionStrategies
+            : Planner.ResolutionStrategies.filter(s => s !== CoalesceRecipes);
+        const strategizer = new Strategizer([new InitialRecipe(recipe), ...strategies.map(S => this.instantiate(S))], [], Empty);
+        const terminal = [];
+        do {
+            await strategizer.generate();
+            terminal.push(...strategizer.terminal);
+        } while (strategizer.generated.length + strategizer.terminal.length > 0);
+        return this.processStrategyOutput(terminal);
+    }
+    async singleStrategyRun(recipe, strategyName) {
+        const strategy = Planner.AllStrategies.find(s => s.name === strategyName);
+        if (!strategy)
+            return { error: { message: `Strategy ${strategyName} not found` } };
+        return this.processStrategyOutput(await this.instantiate(strategy).generate({
+            generation: 0,
+            generated: [{ result: recipe, score: 1 }],
+            population: [{ result: recipe, score: 1 }],
+            terminal: [{ result: recipe, score: 1 }]
+        }));
+    }
+    instantiate(strategyClass) {
+        // TODO: Strategies should have access to the context that is a combination of arc context and
+        //       the entered manifest. Right now strategies only see arc context, which means that
+        //       various strategies will not see particles defined in the manifest entered in the
+        //       editor. This may bite us with verb substitution, hosted particle resolution etc.
+        return new strategyClass(this.arc, { recipeIndex: this.recipeIndex });
+    }
+    processStrategyOutput(inputs) {
+        return { results: inputs.map(result => {
+                const recipe = result.result;
+                const errors = new Map();
+                if (!Object.isFrozen(recipe)) {
+                    recipe.normalize({ errors });
+                }
+                let recipeString = '';
+                try {
+                    recipeString = recipe.toString({ showUnresolved: true });
+                }
+                catch (e) {
+                    console.warn(e);
+                }
+                return {
+                    recipe: recipeString,
+                    derivation: this.extractDerivation(result),
+                    errors: [...errors.values()].map(error => ({ error })),
+                };
+            }) };
+    }
+    extractDerivation(result) {
+        const found = [];
+        for (const deriv of result.derivation) {
+            if (!deriv.parent && deriv.strategy.constructor !== InitialRecipe) {
+                found.push(deriv.strategy.constructor.name);
+            }
+            else if (deriv.parent) {
+                const childDerivs = this.extractDerivation(deriv.parent);
+                for (const childDeriv of childDerivs) {
+                    found.push(childDeriv
+                        ? `${childDeriv} -> ${deriv.strategy.constructor.name}`
+                        : deriv.strategy.constructor.name);
+                }
+                if (childDerivs.length === 0)
+                    found.push(deriv.strategy.constructor.name);
+            }
+        }
+        return found;
+    }
+    processManifestError(error) {
+        let suggestion = null;
+        const errorTypes = [{
+                // TODO: Switch to declaring errors in a structured way in the error object, instead of message parsing.
+                pattern: /could not find particle ([A-Z][A-Za-z0-9_]*)\n/,
+                predicate: extracted => manifest => !!(manifest.particles.find(p => p.name === extracted))
+            }, {
+                pattern: /Could not resolve type reference to type name '([A-Z][A-Za-z0-9_]*)'\n/,
+                predicate: extracted => manifest => !!(manifest.schemas[extracted])
+            }];
+        for (const { pattern, predicate } of errorTypes) {
+            const match = pattern.exec(error.message);
+            if (match) {
+                const [_, extracted] = match;
+                const fileNames = this.findManifestNames(this.arc.context, predicate(extracted));
+                if (fileNames.length > 0)
+                    suggestion = { action: 'import', fileNames };
+            }
+        }
+        return { suggestion, error: ((({ location, message }) => ({ location, message }))(error)) };
+    }
+    findManifestNames(manifest, predicate) {
+        const map = new Map();
+        this.findManifestNamesRecursive(manifest, predicate, map);
+        return [...map.entries()].sort(([a, depthA], [b, depthB]) => (depthA - depthB)).map(v => v[0]);
+    }
+    findManifestNamesRecursive(manifest, predicate, fileNames) {
+        let depth = predicate(manifest) ? 0 : Number.MAX_SAFE_INTEGER;
+        for (const child of manifest.imports) {
+            depth = Math.min(depth, this.findManifestNamesRecursive(child, predicate, fileNames) + 1);
+        }
+        // http check to avoid listin shell created 'in-memory manifest'.
+        if (depth < Number.MAX_SAFE_INTEGER && manifest.fileName.startsWith('http')) {
+            fileNames.set(manifest.fileName, depth);
+        }
+        return depth;
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class ArcStoresFetcher {
+    constructor(arc, arcDevtoolsChannel) {
+        this.arc = arc;
+        arcDevtoolsChannel.listen('fetch-stores', async () => arcDevtoolsChannel.send({
+            messageType: 'fetch-stores-result',
+            messageBody: await this._listStores()
+        }));
+    }
+    async _listStores() {
+        const find = manifest => {
+            let tags = [...manifest.storeTags];
+            if (manifest.imports) {
+                manifest.imports.forEach(imp => tags = tags.concat(find(imp)));
+            }
+            return tags;
+        };
+        return {
+            arcStores: await this._digestStores(this.arc.storeTags),
+            contextStores: await this._digestStores(find(this.arc.context))
+        };
+    }
+    async _digestStores(stores) {
+        const result = [];
+        for (const [store, tags] of stores) {
+            let value = `(don't know how to dereference)`;
+            if (store.toList) {
+                value = await store.toList();
+            }
+            else if (store.get) {
+                value = await store.get();
+            }
+            result.push({
+                name: store.name,
+                tags: tags ? [...tags] : [],
+                id: store.id,
+                storage: store.storageKey,
+                type: store.type,
+                description: store.description,
+                value
+            });
+        }
+        return result;
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+// Arc-independent handlers for devtools logic.
+DevtoolsConnection.onceConnected.then(devtoolsChannel => {
+    enableTracingAdapter(devtoolsChannel);
+});
+class ArcDebugHandler {
+    constructor(arc) {
+        this.arcDevtoolsChannel = null;
+        // Currently no support for speculative arcs.
+        if (arc.isSpeculative)
+            return;
+        const connectedOnInstantiate = DevtoolsConnection.isConnected;
+        DevtoolsConnection.onceConnected.then(devtoolsChannel => {
+            if (!connectedOnInstantiate) {
+                devtoolsChannel.send({
+                    messageType: 'warning',
+                    messageBody: 'pre-existing-arc'
+                });
+            }
+            this.arcDevtoolsChannel = devtoolsChannel.forArc(arc);
+            // Message handles go here.
+            const arcPlannerInvoker = new ArcPlannerInvoker(arc, this.arcDevtoolsChannel);
+            const arcStoresFetcher = new ArcStoresFetcher(arc, this.arcDevtoolsChannel);
+            this.arcDevtoolsChannel.send({ messageType: 'arc-available' });
+        });
+    }
+    recipeInstantiated({ particles }) {
+        if (!this.arcDevtoolsChannel)
+            return;
+        const truncate = ({ id, name }) => ({ id, name });
+        const slotConnections = [];
+        particles.forEach(p => Object.values(p.consumedSlotConnections).forEach(cs => {
+            if (cs.targetSlot) {
+                slotConnections.push({
+                    particleId: cs.particle.id,
+                    consumed: truncate(cs.targetSlot),
+                    provided: Object.values(cs.providedSlots).map(slot => truncate(slot)),
+                });
+            }
+        }));
+        this.arcDevtoolsChannel.send({
+            messageType: 'recipe-instantiated',
+            messageBody: { slotConnections }
+        });
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class Arc {
+    constructor({ id, context, pecFactory, slotComposer, loader, storageKey, storageProviderFactory, speculative, innerArc }) {
+        this._activeRecipe = new Recipe();
+        // TODO: rename: these are just tuples of {particles, handles, slots, pattern} of instantiated recipes merged into active recipe.
+        this._recipes = [];
+        this.dataChangeCallbacks = new Map();
+        // All the stores, mapped by store ID
+        this.storesById = new Map();
+        // storage keys for referenced handles
+        this.storageKeys = {};
+        // Map from each store to a set of tags. public for debug access
+        this.storeTags = new Map();
+        // Map from each store to its description (originating in the manifest).
+        this.storeDescriptions = new Map();
+        this.instantiatePlanCallbacks = [];
+        this.innerArcsByParticle = new Map();
+        this.particleHandleMaps = new Map();
+        // TODO: context should not be optional.
+        this._context = context || new Manifest({ id });
+        // TODO: pecFactory should not be optional. update all callers and fix here.
+        this.pecFactory = pecFactory || FakePecFactory(loader).bind(null);
+        // for now, every Arc gets its own session
+        this.id = Id.newSessionId().fromString(id);
+        this.isSpeculative = !!speculative; // undefined => false
+        this.isInnerArc = !!innerArc; // undefined => false
+        this._loader = loader;
+        this.storageKey = storageKey;
+        const pecId = this.generateID();
+        const innerPecPort = this.pecFactory(pecId);
+        this.pec = new ParticleExecutionHost(innerPecPort, slotComposer, this);
+        this.storageProviderFactory = storageProviderFactory || new StorageProviderFactory(this.id);
+        this.arcId = this.storageKey ? this.storageProviderFactory.parseStringAsKey(this.storageKey).arcId : '';
+        this.debugHandler = new ArcDebugHandler(this);
+    }
+    get loader() {
+        return this._loader;
+    }
+    get modality() {
+        if (this.pec.slotComposer && this.pec.slotComposer.modality) {
+            return this.pec.slotComposer.modality;
+        }
+        return this.activeRecipe.modality;
+    }
+    registerInstantiatePlanCallback(callback) {
+        this.instantiatePlanCallbacks.push(callback);
+    }
+    unregisterInstantiatePlanCallback(callback) {
+        const index = this.instantiatePlanCallbacks.indexOf(callback);
+        if (index >= 0) {
+            this.instantiatePlanCallbacks.splice(index, 1);
+            return true;
+        }
+        return false;
+    }
+    dispose() {
+        for (const innerArc of this.innerArcs) {
+            innerArc.dispose();
+        }
+        this.instantiatePlanCallbacks = [];
+        // TODO: disconnect all assocated store event handlers
+        this.pec.close();
+        // Slot contexts and consumers from inner and outer arcs can be interwoven. Slot composer
+        // is therefore disposed in its entirety with an outer Arc's disposal.
+        if (!this.isInnerArc && this.pec.slotComposer) {
+            // Just a sanity check that we're not disposing a SlotComposer used by some other arc.
+            const allArcs = this.allDescendingArcs;
+            this.pec.slotComposer.consumers.forEach(consumer => assert$1(allArcs.includes(consumer.arc)));
+            this.pec.slotComposer.dispose();
+        }
+    }
+    // Returns a promise that spins sending a single `AwaitIdle` message until it
+    // sees no other messages were sent.
+    async _waitForIdle() {
+        while (true) {
+            const messageCount = this.pec.messageCount;
+            const innerArcs = this.innerArcs;
+            // tslint:disable-next-line: no-any
+            await Promise.all([this.pec.idle, ...innerArcs.map(arc => arc.idle)]);
+            // We're idle if no new inner arcs appeared and this.pec had exactly 2 messages,
+            // one requesting the idle status, and one answering it.
+            if (this.innerArcs.length === innerArcs.length
+                && this.pec.messageCount === messageCount + 2)
+                break;
+        }
+    }
+    get idle() {
+        if (!this.waitForIdlePromise) {
+            // Store one active completion promise for use by any subsequent callers.
+            // We explicitly want to avoid, for example, multiple simultaneous
+            // attempts to identify idle state each sending their own `AwaitIdle`
+            // message and expecting settlement that will never arrive.
+            this.waitForIdlePromise =
+                this._waitForIdle().then(() => this.waitForIdlePromise = null);
+        }
+        return this.waitForIdlePromise;
+    }
+    findInnerArcs(particle) {
+        return this.innerArcsByParticle.get(particle) || [];
+    }
+    // Inner arcs of this arc's transformation particles.
+    // Does *not* include inner arcs of this arc's inner arcs.
+    get innerArcs() {
+        return [].concat(...this.innerArcsByParticle.values());
+    }
+    // This arc and all its descendants.
+    // *Does* include inner arcs of this arc's inner arcs.
+    get allDescendingArcs() {
+        return [this].concat(...this.innerArcs.map(arc => arc.allDescendingArcs));
+    }
+    createInnerArc(transformationParticle) {
+        const id = this.generateID('inner').toString();
+        const innerArc = new Arc({ id, pecFactory: this.pecFactory, slotComposer: this.pec.slotComposer, loader: this._loader, context: this.context, innerArc: true, speculative: this.isSpeculative });
+        let particleInnerArcs = this.innerArcsByParticle.get(transformationParticle);
+        if (!particleInnerArcs) {
+            particleInnerArcs = [];
+            this.innerArcsByParticle.set(transformationParticle, particleInnerArcs);
+        }
+        particleInnerArcs.push(innerArc);
+        return innerArc;
+    }
+    async _serializeHandle(handle, context, id) {
+        const type = handle.type.getContainedType() || handle.type;
+        if (type instanceof InterfaceType) {
+            context.interfaces += type.interfaceInfo.toString() + '\n';
+        }
+        const key = this.storageProviderFactory.parseStringAsKey(handle.storageKey);
+        const tags = this.storeTags.get(handle) || [];
+        const handleTags = [...tags].map(a => `#${a}`).join(' ');
+        const actualHandle = this.activeRecipe.findHandle(handle.id);
+        const originalId = actualHandle ? actualHandle.originalId : null;
+        let combinedId = `'${handle.id}'`;
+        if (originalId) {
+            combinedId += `!!'${originalId}'`;
+        }
+        switch (key.protocol) {
+            case 'firebase':
+            case 'pouchdb':
+                context.handles += `store ${id} of ${handle.type.toString()} ${combinedId} @${handle.version === null ? 0 : handle.version} ${handleTags} at '${handle.storageKey}'\n`;
+                break;
+            case 'volatile': {
+                // TODO(sjmiles): emit empty data for stores marked `volatile`: shell will supply data
+                const volatile = handleTags.includes('volatile');
+                let serializedData = [];
+                if (!volatile) {
+                    // TODO: include keys in serialized [big]collections?
+                    serializedData = (await handle.toLiteral()).model.map(({ id, value, index }) => {
+                        if (value == null) {
+                            return null;
+                        }
+                        let result;
+                        if (value.rawData) {
+                            result = { $id: id };
+                            for (const field of Object.keys(value.rawData)) {
+                                result[field] = value.rawData[field];
+                            }
+                        }
+                        else {
+                            result = value;
+                        }
+                        if (index !== undefined) {
+                            result.$index = index;
+                        }
+                        return result;
+                    });
+                }
+                if (handle.referenceMode && serializedData.length > 0) {
+                    const storageKey = serializedData[0].storageKey;
+                    if (!context.dataResources.has(storageKey)) {
+                        const storeId = `${id}_Data`;
+                        context.dataResources.set(storageKey, storeId);
+                        // TODO: can't just reach into the store for the backing Store like this, should be an
+                        // accessor that loads-on-demand in the storage objects.
+                        await handle.ensureBackingStore();
+                        await this._serializeHandle(handle.backingStore, context, storeId);
+                    }
+                    const storeId = context.dataResources.get(storageKey);
+                    serializedData.forEach(a => { a.storageKey = storeId; });
+                }
+                context.resources += `resource ${id}Resource\n`;
+                const indent = '  ';
+                context.resources += indent + 'start\n';
+                const data = JSON.stringify(serializedData);
+                context.resources += data.split('\n').map(line => indent + line).join('\n');
+                context.resources += '\n';
+                context.handles += `store ${id} of ${handle.type.toString()} ${combinedId} @${handle.version || 0} ${handleTags} in ${id}Resource\n`;
+                break;
+            }
+            default:
+                throw new Error(`unknown storageKey protocol ${key.protocol}`);
+        }
+    }
+    async _serializeHandles() {
+        const context = { handles: '', resources: '', interfaces: '', dataResources: new Map() };
+        let id = 0;
+        const importSet = new Set();
+        const handlesToSerialize = new Set();
+        const contextSet = new Set(this.context.stores.map(store => store.id));
+        for (const handle of this._activeRecipe.handles) {
+            if (handle.fate === 'map') {
+                importSet.add(this.context.findManifestUrlForHandleId(handle.id));
+            }
+            else {
+                // Immediate value handles have values inlined in the recipe and are not serialized.
+                if (handle.immediateValue)
+                    continue;
+                handlesToSerialize.add(handle.id);
+            }
+        }
+        for (const url of importSet.values()) {
+            context.resources += `import '${url}'\n`;
+        }
+        for (const handle of this._stores) {
+            if (!handlesToSerialize.has(handle.id) || contextSet.has(handle.id)) {
+                continue;
+            }
+            await this._serializeHandle(handle, context, `Store${id++}`);
+        }
+        return context.resources + context.interfaces + context.handles;
+    }
+    _serializeParticles() {
+        const particleSpecs = [];
+        // Particles used directly.
+        particleSpecs.push(...this._activeRecipe.particles.map(entry => entry.spec));
+        // Particles referenced in an immediate mode.
+        particleSpecs.push(...this._activeRecipe.handles
+            .filter(h => h.immediateValue)
+            .map(h => h.immediateValue));
+        const results = [];
+        particleSpecs.forEach(spec => {
+            for (const connection of spec.connections) {
+                if (connection.type instanceof InterfaceType) {
+                    results.push(connection.type.interfaceInfo.toString());
+                }
+            }
+            results.push(spec.toString());
+        });
+        return results.join('\n');
+    }
+    _serializeStorageKey() {
+        if (this.storageKey) {
+            return `storageKey: '${this.storageKey}'\n`;
+        }
+        return '';
+    }
+    async serialize() {
+        await this.idle;
+        return `
+meta
+  name: '${this.id}'
+  ${this._serializeStorageKey()}
+
+${await this._serializeHandles()}
+
+${this._serializeParticles()}
+
+@active
+${this.activeRecipe.toString()}`;
+    }
+    // Writes `serialization` to the ArcInfo child key under the Arc's storageKey.
+    // This does not directly use serialize() as callers may want to modify the
+    // contents of the serialized arc before persisting.
+    async persistSerialization(serialization) {
+        const storage = this.storageProviderFactory;
+        const key = storage.parseStringAsKey(this.storageKey).childKeyForArcInfo();
+        const arcInfoType = new ArcType();
+        const store = await storage.connectOrConstruct('store', arcInfoType, key.toString());
+        store.referenceMode = false;
+        // TODO: storage refactor: make sure set() is available here (or wrap store in a Handle-like adaptor).
+        await store.set(arcInfoType.newInstance(this.id, serialization));
+    }
+    static async deserialize({ serialization, pecFactory, slotComposer, loader, fileName, context }) {
+        const manifest = await Manifest.parse(serialization, { loader, fileName, context });
+        const arc = new Arc({
+            id: manifest.meta.name,
+            storageKey: manifest.meta.storageKey,
+            slotComposer,
+            pecFactory,
+            loader,
+            storageProviderFactory: manifest.storageProviderFactory,
+            context
+        });
+        await Promise.all(manifest.stores.map(async (store) => {
+            const tags = manifest.storeTags.get(store);
+            if (store instanceof StorageStub) {
+                store = await store.inflate();
+            }
+            arc._registerStore(store, tags);
+        }));
+        const recipe = manifest.activeRecipe.clone();
+        const options = { errors: new Map() };
+        assert$1(recipe.normalize(options), `Couldn't normalize recipe ${recipe.toString()}:\n${[...options.errors.values()].join('\n')}`);
+        await arc.instantiate(recipe);
+        return arc;
+    }
+    get context() {
+        return this._context;
+    }
+    get activeRecipe() { return this._activeRecipe; }
+    get recipes() { return this._recipes; }
+    loadedParticles() {
+        return [...this.particleHandleMaps.values()].map(({ spec }) => spec);
+    }
+    _instantiateParticle(recipeParticle) {
+        recipeParticle.id = this.generateID('particle');
+        const handleMap = { spec: recipeParticle.spec, handles: new Map() };
+        this.particleHandleMaps.set(recipeParticle.id, handleMap);
+        for (const [name, connection] of Object.entries(recipeParticle.connections)) {
+            if (!connection.handle) {
+                assert$1(connection.isOptional);
+                continue;
+            }
+            const handle = this.findStoreById(connection.handle.id);
+            assert$1(handle, `can't find handle of id ${connection.handle.id}`);
+            this._connectParticleToHandle(recipeParticle, name, handle);
+        }
+        // At least all non-optional connections must be resolved
+        assert$1(handleMap.handles.size >= handleMap.spec.connections.filter(c => !c.isOptional).length, `Not all mandatory connections are resolved for {$particle}`);
+        this.pec.instantiate(recipeParticle, handleMap.spec, handleMap.handles);
+    }
+    generateID(component = '') {
+        return this.id.createId(component).toString();
+    }
+    get _stores() {
+        return [...this.storesById.values()];
+    }
+    // Makes a copy of the arc used for speculative execution.
+    async cloneForSpeculativeExecution() {
+        const arc = new Arc({ id: this.generateID().toString(), pecFactory: this.pecFactory, context: this.context, loader: this._loader, speculative: true, innerArc: this.isInnerArc });
+        const storeMap = new Map();
+        for (const store of this._stores) {
+            const clone = await arc.storageProviderFactory.construct(store.id, store.type, 'volatile');
+            await clone.cloneFrom(store);
+            storeMap.set(store, clone);
+            if (this.storeDescriptions.has(store)) {
+                arc.storeDescriptions.set(clone, this.storeDescriptions.get(store));
+            }
+        }
+        this.particleHandleMaps.forEach((value, key) => {
+            arc.particleHandleMaps.set(key, {
+                spec: value.spec,
+                handles: new Map()
+            });
+            value.handles.forEach(handle => arc.particleHandleMaps.get(key).handles.set(handle.name, storeMap.get(handle)));
+        });
+        const { cloneMap } = this._activeRecipe.mergeInto(arc._activeRecipe);
+        this._recipes.forEach(recipe => arc._recipes.push({
+            particles: recipe.particles.map(p => cloneMap.get(p)),
+            handles: recipe.handles.map(h => cloneMap.get(h)),
+            slots: recipe.slots.map(s => cloneMap.get(s)),
+            patterns: recipe.patterns
+        }));
+        for (const [particle, innerArcs] of this.innerArcsByParticle.entries()) {
+            arc.innerArcsByParticle.set(cloneMap.get(particle), await Promise.all(innerArcs.map(async (arc) => arc.cloneForSpeculativeExecution())));
+        }
+        for (const v of storeMap.values()) {
+            // FIXME: Tags
+            arc._registerStore(v, []);
+        }
+        return arc;
+    }
+    async instantiate(recipe) {
+        assert$1(recipe.isResolved(), `Cannot instantiate an unresolved recipe: ${recipe.toString({ showUnresolved: true })}`);
+        assert$1(recipe.isCompatible(this.modality), `Cannot instantiate recipe ${recipe.toString()} with [${recipe.modality.names}] modalities in '${this.modality.names}' arc`);
+        const { handles, particles, slots } = recipe.mergeInto(this._activeRecipe);
+        this._recipes.push({ particles, handles, slots, patterns: recipe.patterns });
+        // TODO(mmandlis): Get rid of populating the missing local slot IDs here,
+        // it should be done at planning stage.
+        slots.forEach(slot => slot.id = slot.id || `slotid-${this.generateID()}`);
+        for (const recipeHandle of handles) {
+            if (['copy', 'create'].includes(recipeHandle.fate)) {
+                let type = recipeHandle.type;
+                if (recipeHandle.fate === 'create') {
+                    assert$1(type.maybeEnsureResolved(), `Can't assign resolved type to ${type}`);
+                }
+                type = type.resolvedType();
+                assert$1(type.isResolved(), `Can't create handle for unresolved type ${type}`);
+                const newStore = await this.createStore(type, /* name= */ null, this.generateID(), recipeHandle.tags, recipeHandle.immediateValue ? 'volatile' : null);
+                if (recipeHandle.immediateValue) {
+                    const particleSpec = recipeHandle.immediateValue;
+                    const type = recipeHandle.type;
+                    assert$1(type instanceof InterfaceType && type.interfaceInfo.particleMatches(particleSpec));
+                    const particleClone = particleSpec.clone().toLiteral();
+                    particleClone.id = newStore.id;
+                    // TODO(shans): clean this up when we have interfaces for Variable, Collection, etc.
+                    // tslint:disable-next-line: no-any
+                    await newStore.set(particleClone);
+                }
+                else if (recipeHandle.fate === 'copy') {
+                    const copiedStore = this.findStoreById(recipeHandle.id);
+                    assert$1(copiedStore, `Cannot find store ${recipeHandle.id}`);
+                    assert$1(copiedStore.version !== null, `Copied store ${recipeHandle.id} doesn't have version.`);
+                    await newStore.cloneFrom(copiedStore);
+                    this._tagStore(newStore, this.findStoreTags(copiedStore));
+                    const copiedStoreDesc = this.getStoreDescription(copiedStore);
+                    if (copiedStoreDesc) {
+                        this.storeDescriptions.set(newStore, copiedStoreDesc);
+                    }
+                }
+                recipeHandle.id = newStore.id;
+                recipeHandle.fate = 'use';
+                recipeHandle.storageKey = newStore.storageKey;
+                continue;
+                // TODO: move the call to ParticleExecutionHost's DefineHandle to here
+            }
+            // TODO(shans/sjmiles): This shouldn't be possible, but at the moment the
+            // shell pre-populates all arcs with a set of handles so if a recipe explicitly
+            // asks for one of these there's a conflict. Ideally these will end up as a
+            // part of the context and will be populated on-demand like everything else.
+            if (this.storesById.has(recipeHandle.id)) {
+                continue;
+            }
+            let storageKey = recipeHandle.storageKey;
+            if (!storageKey) {
+                storageKey = this.keyForId(recipeHandle.id);
+            }
+            assert$1(storageKey, `couldn't find storage key for handle '${recipeHandle}'`);
+            const type = recipeHandle.type.resolvedType();
+            assert$1(type.isResolved());
+            const store = await this.storageProviderFactory.connect(recipeHandle.id, type, storageKey);
+            assert$1(store, `store '${recipeHandle.id}' was not found`);
+            this._registerStore(store, recipeHandle.tags);
+        }
+        particles.forEach(recipeParticle => this._instantiateParticle(recipeParticle));
+        if (this.pec.slotComposer) {
+            // TODO: pass slot-connections instead
+            this.pec.slotComposer.initializeRecipe(this, particles);
+        }
+        if (!this.isSpeculative) { // Note: callbacks not triggered for speculative arcs.
+            this.instantiatePlanCallbacks.forEach(callback => callback(recipe));
+        }
+        this.debugHandler.recipeInstantiated({ particles });
+    }
+    _connectParticleToHandle(particle, name, targetHandle) {
+        assert$1(targetHandle, 'no target handle provided');
+        const handleMap = this.particleHandleMaps.get(particle.id);
+        assert$1(handleMap.spec.connectionMap.get(name) !== undefined, 'can\'t connect handle to a connection that doesn\'t exist');
+        handleMap.handles.set(name, targetHandle);
+    }
+    async createStore(type, name, id, tags, storageKey = undefined) {
+        assert$1(type instanceof Type, `can't createStore with type ${type} that isn't a Type`);
+        if (type instanceof RelationType) {
+            type = new CollectionType(type);
+        }
+        if (id == undefined) {
+            id = this.generateID();
+        }
+        if (storageKey == undefined && this.storageKey) {
+            storageKey =
+                this.storageProviderFactory.parseStringAsKey(this.storageKey)
+                    .childKeyForHandle(id)
+                    .toString();
+        }
+        // TODO(sjmiles): use `volatile` for volatile stores
+        const hasVolatileTag = tags => tags && ((Array.isArray(tags) && tags.includes('volatile')) || tags === 'volatile');
+        if (storageKey == undefined || hasVolatileTag(tags)) {
+            storageKey = 'volatile';
+        }
+        const store = await this.storageProviderFactory.construct(id, type, storageKey);
+        assert$1(store, `failed to create store with id [${id}]`);
+        store.name = name;
+        this._registerStore(store, tags);
+        return store;
+    }
+    _registerStore(store, tags) {
+        assert$1(!this.storesById.has(store.id), `Store already registered '${store.id}'`);
+        tags = tags || [];
+        tags = Array.isArray(tags) ? tags : [tags];
+        this.storesById.set(store.id, store);
+        this.storeTags.set(store, new Set(tags));
+        this.storageKeys[store.id] = store.storageKey;
+        store.on('change', () => this._onDataChange(), this);
+    }
+    _tagStore(store, tags) {
+        assert$1(this.storesById.has(store.id) && this.storeTags.has(store), `Store not registered '${store.id}'`);
+        const storeTags = this.storeTags.get(store);
+        (tags || []).forEach(tag => storeTags.add(tag));
+    }
+    _onDataChange() {
+        for (const callback of this.dataChangeCallbacks.values()) {
+            callback();
+        }
+    }
+    onDataChange(callback, registration) {
+        this.dataChangeCallbacks.set(registration, callback);
+    }
+    clearDataChange(registration) {
+        this.dataChangeCallbacks.delete(registration);
+    }
+    // Convert a type to a normalized key that we can use for
+    // equality testing.
+    //
+    // TODO: we should be testing the schemas for compatiblity instead of using just the name.
+    // TODO: now that this is only used to implement findStoresByType we can probably replace
+    // the check there with a type system equality check or similar.
+    static _typeToKey(type) {
+        const elementType = type.getContainedType();
+        if (elementType) {
+            const key = this._typeToKey(elementType);
+            if (key) {
+                return `list:${key}`;
+            }
+        }
+        else if (type instanceof EntityType) {
+            return type.entitySchema.name;
+        }
+        else if (type instanceof InterfaceType) {
+            // TODO we need to fix this too, otherwise all handles of interface type will
+            // be of the 'same type' when searching by type.
+            return type.interfaceInfo;
+        }
+        else if (type instanceof TypeVariable && type.isResolved()) {
+            return Arc._typeToKey(type.resolvedType());
+        }
+    }
+    findStoresByType(type, options) {
+        const typeKey = Arc._typeToKey(type);
+        let stores = [...this.storesById.values()].filter(handle => {
+            if (typeKey) {
+                const handleKey = Arc._typeToKey(handle.type);
+                if (typeKey === handleKey) {
+                    return true;
+                }
+            }
+            else {
+                if (type instanceof TypeVariable && !type.isResolved() && handle.type instanceof EntityType) {
+                    return true;
+                }
+                // elementType will only be non-null if type is either Collection or BigCollection; the tag
+                // comparison ensures that handle.type is the same sort of collection.
+                const elementType = type.getContainedType();
+                if (elementType && elementType instanceof TypeVariable && !elementType.isResolved() && type.tag === handle.type.tag) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        if (options && options.tags && options.tags.length > 0) {
+            stores = stores.filter(store => options.tags.filter(tag => !this.storeTags.get(store).has(tag)).length === 0);
+        }
+        // Quick check that a new handle can fulfill the type contract.
+        // Rewrite of this method tracked by https://github.com/PolymerLabs/arcs/issues/1636.
+        return stores.filter(s => !!Handle$1.effectiveType(type, [{ type: s.type, direction: (s.type instanceof InterfaceType) ? 'host' : 'inout' }]));
+    }
+    findStoreById(id) {
+        let store = this.storesById.get(id);
+        if (store == null) {
+            store = this._context.findStoreById(id);
+        }
+        return store;
+    }
+    findStoreTags(store) {
+        if (this.storeTags.has(store)) {
+            return this.storeTags.get(store);
+        }
+        return this._context.findStoreTags(store);
+    }
+    getStoreDescription(store) {
+        assert$1(store, 'Cannot fetch description for nonexistent store');
+        return this.storeDescriptions.get(store) || store.description;
+    }
+    getVersionByStore({ includeArc = true, includeContext = false }) {
+        const versionById = {};
+        if (includeArc) {
+            this.storesById.forEach((handle, id) => versionById[id] = handle.version);
+        }
+        if (includeContext) {
+            this._context.allStores.forEach(handle => versionById[handle.id] = handle.version);
+        }
+        return versionById;
+    }
+    keyForId(id) {
+        return this.storageKeys[id];
+    }
+    stop() {
+        this.pec.stop();
+    }
+    toContextString(options) {
+        const results = [];
+        const stores = [...this.storesById.values()].sort(compareComparables);
+        stores.forEach(store => {
+            results.push(store.toString([...this.storeTags.get(store)]));
+        });
+        // TODO: include stores entities
+        // TODO: include (remote) slots?
+        if (!this._activeRecipe.isEmpty()) {
+            results.push(this._activeRecipe.toString());
+        }
+        return results.join('\n');
+    }
+    get apiChannelMappingId() {
+        return this.id.toString();
+    }
+}
+
+class SuggestionComposer {
+    constructor(arc, slotComposer) {
+        this._suggestions = [];
+        // used in tests
+        this._suggestConsumers = [];
+        this._container = slotComposer.findContainerByName('suggestions');
+        this._slotComposer = slotComposer;
+        this.arc = arc;
+    }
+    get modalityHandler() { return this._slotComposer.modalityHandler; }
+    clear() {
+        if (this._container) {
+            this.modalityHandler.slotConsumerClass.clear(this._container);
+        }
+        this._suggestConsumers.forEach(consumer => consumer.dispose());
+        this._suggestConsumers.length = 0;
+    }
+    setSuggestions(suggestions) {
+        this.clear();
+        this._suggestions = suggestions.sort(Suggestion.compare);
+        for (const suggestion of this._suggestions) {
+            // TODO(mmandlis): use modality-appropriate description.
+            const suggestionContent = { template: suggestion.descriptionText };
+            if (!suggestionContent) {
+                throw new Error('No suggestion content available');
+            }
+            if (this._container) {
+                this.modalityHandler.suggestionConsumerClass.render(this.arc, this._container, suggestion, suggestionContent);
+            }
+            this._addInlineSuggestion(suggestion, suggestionContent);
+        }
+    }
+    _addInlineSuggestion(suggestion, suggestionContent) {
+        const remoteSlots = suggestion.plan.slots.filter(s => !!s.id);
+        if (remoteSlots.length !== 1) {
+            return;
+        }
+        const remoteSlot = remoteSlots[0];
+        const context = this._slotComposer.findContextById(remoteSlot.id);
+        if (!context) {
+            throw new Error('Missing context for ' + remoteSlot.id);
+        }
+        if (context.spec.isSet) {
+            // TODO: Inline suggestion in a set slot is not supported yet. Implement!
+            return;
+        }
+        // Don't put suggestions in context that either (1) is a root context, (2) doesn't have
+        // an actual container or (3) is not restricted to specific handles.
+        if (!context.sourceSlotConsumer) {
+            return;
+        }
+        if (context.spec.handles.length === 0) {
+            return;
+        }
+        const handleIds = context.spec.handles.map(handleName => context.sourceSlotConsumer.consumeConn.particle.connections[handleName].handle.id);
+        if (!handleIds.find(handleId => suggestion.plan.handles.find(handle => handle.id === handleId))) {
+            // the suggestion doesn't use any of the handles that the context is restricted to.
+            return;
+        }
+        const suggestConsumer = new this.modalityHandler.suggestionConsumerClass(this.arc, this._slotComposer.containerKind, suggestion, suggestionContent, (eventlet) => {
+            const suggestion = this._suggestions.find(s => s.hash === eventlet.data.key);
+            suggestConsumer.dispose();
+            if (suggestion) {
+                const index = this._suggestConsumers.findIndex(consumer => consumer === suggestConsumer);
+                if (index < 0) {
+                    throw new Error('cannot find suggest slot context');
+                }
+                this._suggestConsumers.splice(index, 1);
+                suggestion.instantiate(this.arc);
+            }
+        });
+        context.addSlotConsumer(suggestConsumer);
+        this._suggestConsumers.push(suggestConsumer);
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
 const defaultTimeoutMs = 5000;
 const log = logFactory('PlanProducer', '#ff0090', 'log');
 const error$1 = logFactory('PlanProducer', '#ff0090', 'error');
+var Trigger;
+(function (Trigger) {
+    Trigger["Init"] = "init";
+    Trigger["Search"] = "search";
+    Trigger["PlanInstantiated"] = "plan-instantiated";
+    Trigger["DataChanged"] = "data-changed";
+    Trigger["Forced"] = "forced";
+})(Trigger || (Trigger = {}));
 class PlanProducer {
     constructor(arc, result, searchStore, { debug = false } = {}) {
         this.planner = null;
+        this.needReplan = false;
+        this._isPlanning = false;
         this.stateChangedCallbacks = [];
-        this.debug = false;
+        this.devtoolsChannel = null;
         assert$1(result, 'result cannot be null');
         assert$1(arc, 'arc cannot be null');
         this.arc = arc;
@@ -27647,6 +27915,9 @@ class PlanProducer {
             this.searchStore.on('change', this.searchStoreCallback, this);
         }
         this.debug = debug;
+        if (DevtoolsConnection.isConnected) {
+            this.devtoolsChannel = DevtoolsConnection.get().forArc(this.arc);
+        }
     }
     get isPlanning() { return this._isPlanning; }
     set isPlanning(isPlanning) {
@@ -27660,7 +27931,7 @@ class PlanProducer {
         this.stateChangedCallbacks.push(callback);
     }
     async onSearchChanged() {
-        const values = await this.searchStore['get']() || [];
+        const values = await this.searchStore.get() || [];
         const arcId = this.arc.arcId;
         const value = values.find(value => value.arc === arcId);
         if (!value) {
@@ -27674,9 +27945,10 @@ class PlanProducer {
             // search string turned empty, no need to replan, going back to contextual suggestions.
             return;
         }
+        const metadata = { trigger: Trigger.Search, search: this.search };
         if (this.search === '*') { // Search for ALL (including non-contextual) suggestions.
             if (this.result.contextual) {
-                this.produceSuggestions({ contextual: false });
+                this.produceSuggestions({ contextual: false, metadata });
             }
         }
         else { // Search by search term.
@@ -27696,7 +27968,7 @@ class PlanProducer {
                 options.append = true;
                 options.strategies = [InitSearch, ...Planner.ResolutionStrategies];
             }
-            this.produceSuggestions(options);
+            this.produceSuggestions(Object.assign({}, options, { metadata }));
         }
     }
     dispose() {
@@ -27721,11 +27993,22 @@ class PlanProducer {
             suggestions = await this.runPlanner(this.replanOptions, generations);
         }
         time = ((now$1() - time) / 1000).toFixed(2);
-        // Suggestions are null, if planning was cancelled.
         if (suggestions) {
-            log(`Produced ${suggestions.length}${this.replanOptions['append'] ? ' additional' : ''} suggestions [elapsed=${time}s].`);
+            log(`[${this.arc.arcId}] Produced ${suggestions.length}${this.replanOptions['append'] ? ' additional' : ''} suggestions [elapsed=${time}s].`);
             this.isPlanning = false;
-            await this._updateResult({ suggestions, generations: this.debug ? generations : [] }, this.replanOptions);
+            if (this._updateResult({ suggestions, generations: this.debug ? generations : [] }, this.replanOptions)) {
+                // Store suggestions to store.
+                await this.result.flush();
+                PlanningExplorerAdapter.updatePlanningResults(this.result, options['metadata'], this.devtoolsChannel);
+            }
+            else {
+                // Add skipped result to devtools.
+                PlanningExplorerAdapter.updatePlanningAttempt(suggestions, options['metadata'], this.devtoolsChannel);
+            }
+        }
+        else { // Suggestions are null, if planning was cancelled.
+            // Add cancelled attempt to devtools.
+            PlanningExplorerAdapter.updatePlanningAttempt(null, options['metadata'], this.devtoolsChannel);
         }
     }
     async runPlanner(options, generations) {
@@ -27738,7 +28021,8 @@ class PlanProducer {
                 contextual: options['contextual'],
                 search: options['search'],
                 recipeIndex: this.recipeIndex
-            }
+            },
+            blockDevtools: true // Devtools communication is handled by PlanConsumer in Producer+Consumer setup.
         });
         suggestions = await this.planner.suggest(options['timeout'] || defaultTimeoutMs, generations, this.speculator);
         if (this.planner) {
@@ -27757,21 +28041,176 @@ class PlanProducer {
         this.isPlanning = false; // using the setter method to trigger callbacks.
         log(`Cancel planning`);
     }
-    async _updateResult({ suggestions, generations }, options) {
+    _updateResult({ suggestions, generations }, options) {
         generations = PlanningResult.formatSerializableGenerations(generations);
         if (options.append) {
             assert$1(!options['contextual'], `Cannot append to contextual options`);
-            if (!this.result.append({ suggestions, generations })) {
-                return;
-            }
+            return this.result.append({ suggestions, generations });
         }
         else {
-            if (!this.result.set({ suggestions, generations, contextual: options['contextual'] })) {
-                return;
-            }
+            return this.result.merge({ suggestions, generations, contextual: options['contextual'] }, this.arc);
         }
-        // Store suggestions to store.
-        await this.result.flush();
+    }
+}
+
+class PlanningExplorerAdapter {
+    static updatePlanningResults(result, metadata, devtoolsChannel) {
+        if (devtoolsChannel) {
+            devtoolsChannel.send({
+                messageType: 'suggestions-changed',
+                messageBody: {
+                    suggestions: PlanningExplorerAdapter._formatSuggestions(result.suggestions),
+                    lastUpdated: result.lastUpdated.getTime(),
+                    metadata
+                }
+            });
+        }
+    }
+    static updateVisibleSuggestions(visibleSuggestions, devtoolsChannel) {
+        if (devtoolsChannel) {
+            devtoolsChannel.send({
+                messageType: 'visible-suggestions-changed',
+                messageBody: {
+                    visibleSuggestionHashes: visibleSuggestions.map(s => s.hash)
+                }
+            });
+        }
+    }
+    static updatePlanningAttempt(suggestions, metadata, devtoolsChannel) {
+        if (devtoolsChannel) {
+            devtoolsChannel.send({
+                messageType: 'planning-attempt',
+                messageBody: {
+                    suggestions: suggestions ? PlanningExplorerAdapter._formatSuggestions(suggestions) : null,
+                    metadata
+                }
+            });
+        }
+    }
+    static _formatSuggestions(suggestions) {
+        return suggestions.map(s => {
+            const suggestionCopy = Object.assign({}, s);
+            suggestionCopy['particles'] = s.plan.particles.map(p => ({ name: p.name }));
+            delete suggestionCopy.plan;
+            return suggestionCopy;
+        });
+    }
+    static subscribeToForceReplan(planificator) {
+        if (DevtoolsConnection.isConnected) {
+            const devtoolsChannel = DevtoolsConnection.get().forArc(planificator.arc);
+            devtoolsChannel.listen('force-replan', async () => {
+                planificator.consumer.result.suggestions = [];
+                await planificator.consumer.result.flush();
+                await planificator.requestPlanning({ metadata: { trigger: Trigger.Forced } });
+                await planificator.loadSuggestions();
+            });
+        }
+    }
+}
+
+/**
+ * @license
+ * Copyright (c) 2018 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+class PlanConsumer {
+    constructor(arc, result) {
+        // Callback is triggered when planning results have changed.
+        this.suggestionsChangeCallbacks = [];
+        // Callback is triggered when suggestions visible to the user have changed.
+        this.visibleSuggestionsChangeCallbacks = [];
+        this.suggestionComposer = null;
+        this.currentSuggestions = [];
+        this.devtoolsChannel = null;
+        assert$1(arc, 'arc cannot be null');
+        assert$1(result, 'result cannot be null');
+        this.arc = arc;
+        this.result = result;
+        this.suggestFilter = { showAll: false };
+        this.suggestionsChangeCallbacks = [];
+        this.visibleSuggestionsChangeCallbacks = [];
+        this._initSuggestionComposer();
+        this.result.registerChangeCallback(() => this.onSuggestionsChanged());
+        if (DevtoolsConnection.isConnected) {
+            this.devtoolsChannel = DevtoolsConnection.get().forArc(this.arc);
+        }
+    }
+    registerSuggestionsChangedCallback(callback) { this.suggestionsChangeCallbacks.push(callback); }
+    registerVisibleSuggestionsChangedCallback(callback) { this.visibleSuggestionsChangeCallbacks.push(callback); }
+    setSuggestFilter(showAll, search) {
+        assert$1(!showAll || !search);
+        if (this.suggestFilter['showAll'] === showAll && this.suggestFilter['search'] === search) {
+            return;
+        }
+        this.suggestFilter = { showAll, search };
+        this._onMaybeSuggestionsChanged();
+    }
+    onSuggestionsChanged() {
+        this._onSuggestionsChanged();
+        this._onMaybeSuggestionsChanged();
+        if (this.result.generations.length) {
+            StrategyExplorerAdapter.processGenerations(this.result.generations, this.devtoolsChannel, { label: 'Plan Consumer', keep: true });
+        }
+    }
+    getCurrentSuggestions() {
+        const suggestions = this.result.suggestions.filter(suggestion => suggestion.plan.slots.length > 0
+            && this.arc.modality.isCompatible(suggestion.plan.modality.names));
+        // `showAll`: returns all suggestions that render into slots.
+        if (this.suggestFilter['showAll']) {
+            // Should filter out suggestions produced by search phrases?
+            return suggestions;
+        }
+        // search filter non empty: match plan search phrase or description text.
+        if (this.suggestFilter['search']) {
+            return suggestions.filter(suggestion => suggestion.descriptionText.toLowerCase().includes(this.suggestFilter['search']) ||
+                suggestion.hasSearch(this.suggestFilter['search']));
+        }
+        return suggestions.filter(suggestion => {
+            const usesHandlesFromActiveRecipe = suggestion.plan.handles.find(handle => {
+                // TODO(mmandlis): find a generic way to exlude system handles (eg Theme),
+                // either by tagging or by exploring connection directions etc.
+                return !!handle.id &&
+                    !!this.arc.activeRecipe.handles.find(activeHandle => activeHandle.id === handle.id);
+            });
+            const usesRemoteNonRootSlots = suggestion.plan.slots.find(slot => {
+                return !slot.name.includes('root') && !slot.tags.includes('root') &&
+                    slot.id && !slot.id.includes('root') &&
+                    Boolean(this.arc.pec.slotComposer.findContextById(slot.id));
+            });
+            const onlyUsesNonRootSlots = !suggestion.plan.slots.find(s => s.name.includes('root') || s.tags.includes('root')) &&
+                !((suggestion.plan.slotConnections || []).find(sc => sc.name === 'root'));
+            return (usesHandlesFromActiveRecipe && usesRemoteNonRootSlots) || onlyUsesNonRootSlots;
+        });
+    }
+    dispose() {
+        this.suggestionsChangeCallbacks = [];
+        this.visibleSuggestionsChangeCallbacks = [];
+        if (this.suggestionComposer) {
+            this.suggestionComposer.clear();
+        }
+    }
+    _onSuggestionsChanged() {
+        this.suggestionsChangeCallbacks.forEach(callback => callback({ suggestions: this.result.suggestions }));
+        PlanningExplorerAdapter.updatePlanningResults(this.result, {}, this.devtoolsChannel);
+    }
+    _onMaybeSuggestionsChanged() {
+        const suggestions = this.getCurrentSuggestions();
+        if (!PlanningResult.isEquivalent(this.currentSuggestions, suggestions)) {
+            this.visibleSuggestionsChangeCallbacks.forEach(callback => callback(suggestions));
+            this.currentSuggestions = suggestions;
+            PlanningExplorerAdapter.updateVisibleSuggestions(this.currentSuggestions, this.devtoolsChannel);
+        }
+    }
+    _initSuggestionComposer() {
+        const composer = this.arc.pec.slotComposer;
+        if (composer && composer.findContextById('rootslotid-suggestions')) {
+            this.suggestionComposer = new SuggestionComposer(this.arc, composer);
+            this.registerVisibleSuggestionsChangedCallback((suggestions) => this.suggestionComposer.setSuggestions(suggestions));
+        }
     }
 }
 
@@ -27798,7 +28237,7 @@ class ReplanQueue {
     }
     addChange() {
         this.changes.push(now$1());
-        if (this._isReplanningScheduled()) {
+        if (this.isReplanningScheduled()) {
             this._postponeReplan();
         }
         else if (!this.planProducer.isPlanning) {
@@ -27818,15 +28257,18 @@ class ReplanQueue {
             this._scheduleReplan(this.options.defaultReplanDelayMs);
         }
     }
-    _isReplanningScheduled() {
-        return Boolean(this.replanTimer);
+    isReplanningScheduled() {
+        return this.replanTimer !== null;
     }
     _scheduleReplan(intervalMs) {
         this._cancelReplanIfScheduled();
-        this.replanTimer = setTimeout(() => this.planProducer.produceSuggestions({ contextual: this.planProducer.result.contextual }), intervalMs);
+        this.replanTimer = setTimeout(() => this.planProducer.produceSuggestions({
+            contextual: this.planProducer.result.contextual,
+            metadata: { trigger: Trigger.DataChanged }
+        }), intervalMs);
     }
     _cancelReplanIfScheduled() {
-        if (this._isReplanningScheduled()) {
+        if (this.isReplanningScheduled()) {
             clearTimeout(this.replanTimer);
             this.replanTimer = null;
         }
@@ -27861,7 +28303,7 @@ class ReplanQueue {
  * http://polymer.github.io/PATENTS.txt
  */
 class Planificator {
-    constructor(arc, userid, store, searchStore, onlyConsumer, debug) {
+    constructor(arc, userid, store, searchStore, onlyConsumer = false, debug = false) {
         this.search = null;
         // In <0.6 shell, this is needed to backward compatibility, in order to (1)
         // (1) trigger replanning with a local producer and (2) notify shell of the
@@ -27871,7 +28313,7 @@ class Planificator {
         this.arc = arc;
         this.userid = userid;
         this.searchStore = searchStore;
-        this.result = new PlanningResult(store);
+        this.result = new PlanningResult({ context: arc.context, loader: arc.loader }, store);
         if (!onlyConsumer) {
             this.producer = new PlanProducer(this.arc, this.result, searchStore, { debug });
             this.replanQueue = new ReplanQueue(this.producer);
@@ -27881,6 +28323,7 @@ class Planificator {
         this.consumer = new PlanConsumer(this.arc, this.result);
         this.lastActivatedPlan = null;
         this.arc.registerInstantiatePlanCallback(this.arcCallback);
+        PlanningExplorerAdapter.subscribeToForceReplan(this);
     }
     static async create(arc, { userid, storageKeyBase, onlyConsumer, debug = false }) {
         assert$1(arc, 'Arc cannot be null.');
@@ -27889,7 +28332,8 @@ class Planificator {
         const store = await Planificator._initSuggestStore(arc, userid, storageKeyBase);
         const searchStore = await Planificator._initSearchStore(arc, userid);
         const planificator = new Planificator(arc, userid, store, searchStore, onlyConsumer, debug);
-        planificator.requestPlanning({ contextual: true });
+        await planificator.loadSuggestions();
+        planificator.requestPlanning({ contextual: true, metadata: { trigger: Trigger.Init } });
         return planificator;
     }
     async requestPlanning(options = {}) {
@@ -27936,7 +28380,10 @@ class Planificator {
     }
     _onPlanInstantiated(plan) {
         this.lastActivatedPlan = plan;
-        this.requestPlanning();
+        this.requestPlanning({ metadata: {
+                trigger: Trigger.PlanInstantiated,
+                particleNames: plan.particles.map(p => p.name).join(',')
+            } });
     }
     _listenToArcStores() {
         this.arc.onDataChange(this.dataChangeCallback, this);
@@ -27954,22 +28401,22 @@ class Planificator {
             }
         });
     }
-    static _constructSuggestionKey(arc, userid, storageKeyBase) {
+    static constructSuggestionKey(arc, userid, storageKeyBase) {
         const arcStorageKey = arc.storageProviderFactory.parseStringAsKey(arc.storageKey);
         const keybase = arc.storageProviderFactory.parseStringAsKey(storageKeyBase || arcStorageKey.base());
         return keybase.childKeyForSuggestions(userid, arcStorageKey.arcId);
     }
-    static _constructSearchKey(arc, userid) {
+    static constructSearchKey(arc, userid) {
         const arcStorageKey = arc.storageProviderFactory.parseStringAsKey(arc.storageKey);
         const keybase = arc.storageProviderFactory.parseStringAsKey(arcStorageKey.base());
         return keybase.childKeyForSearch(userid);
     }
     static async _initSuggestStore(arc, userid, storageKeyBase) {
-        const storageKey = Planificator._constructSuggestionKey(arc, userid, storageKeyBase);
+        const storageKey = Planificator.constructSuggestionKey(arc, userid, storageKeyBase);
         return Planificator._initStore(arc, 'suggestions-id', EntityType.make(['Suggestions'], { current: 'Object' }), storageKey);
     }
     static async _initSearchStore(arc, userid) {
-        const storageKey = Planificator._constructSearchKey(arc, userid);
+        const storageKey = Planificator.constructSearchKey(arc, userid);
         return Planificator._initStore(arc, 'search-id', EntityType.make(['Search'], { current: 'Object' }), storageKey);
     }
     static async _initStore(arc, id, type, storageKey) {
@@ -27979,7 +28426,7 @@ class Planificator {
         return store;
     }
     async _storeSearch() {
-        const values = await this.searchStore['get']() || [];
+        const values = await this.searchStore.get() || [];
         const arcKey = this.arc.arcId;
         const newValues = [];
         for (const { arc, search } of values) {
@@ -27990,7 +28437,7 @@ class Planificator {
         if (this.search) {
             newValues.push({ search: this.search, arc: arcKey });
         }
-        return this.searchStore['set'](newValues);
+        return this.searchStore.set(newValues);
     }
 }
 
@@ -28177,6 +28624,7 @@ const Arcs = {
   Arc,
   Manifest,
   Modality,
+  ModalityHandler,
   Planificator,
   Suggestion,
   SlotComposer,
@@ -28190,6 +28638,7 @@ const Arcs = {
   KeyManager,
   firebase,
   logFactory,
+  DevtoolsConnection,
   Xen: {
     StateMixin: XenStateMixin,
     Template,
@@ -28284,6 +28733,7 @@ const {
   Arc: Arc$1,
   Manifest: Manifest$1,
   Modality: Modality$1,
+  ModalityHandler: ModalityHandler$1,
   Planificator: Planificator$1,
   Suggestion: Suggestion$1,
   SlotComposer: SlotComposer$1,
@@ -28298,6 +28748,7 @@ const {
   firebase: firebase$1,
   logFactory: logFactory$2,
   Xen,
+  DevtoolsConnection: DevtoolsConnection$1
 } = g$1.__ArcsLib__;
 
 // TODO(sjmiles): populated dynamically via env-base.js
@@ -28485,13 +28936,8 @@ class ArcHost {
       await this.instantiateDefaultRecipe(this.arc, config.manifest);
     }
     if (this.pendingPlan) {
-      let plan = this.pendingPlan;
+      const plan = this.pendingPlan;
       this.pendingPlan = null;
-      // TODO(sjmiles): pass suggestion all the way from web-shell
-      // and call suggestion.instantiate(arc).
-      if (plan.serialization) {
-        plan = await Suggestion$1.planFromString(plan.serialization, this.arc);
-      }
       await this.instantiatePlan(this.arc, plan);
     }
     return this.arc;
@@ -28538,6 +28984,11 @@ class ArcHost {
   }
   async instantiatePlan(arc, plan) {
     log$2('instantiatePlan');
+    // TODO(sjmiles): pass suggestion all the way from web-shell
+    // and call suggestion.instantiate(arc).
+    if (!plan.isResolved()) {
+      log$2(`Suggestion plan ${plan.toString({showUnresolved: true})} is not resolved.`);
+    }
     try {
       await arc.instantiate(plan);
     } catch (x) {
@@ -28578,7 +29029,8 @@ class RamSlotComposer extends SlotComposer$1 {
   constructor(options = {}) {
     super({
       rootContainer: options.rootContainer || {'root': 'root-context'},
-      modality: Modality$1.forName('mock-dom')
+      modalityName: options.modalityName,
+      modalityHandler: ModalityHandler$1.createHeadlessHandler()
     });
   }
 
@@ -28769,8 +29221,6 @@ const SingleUserContext = class {
       const store = await SyntheticStores.getStore(storage, key);
       if (store) {
         await this.observeStore(store, key, info => this.onArcStoreChanged(key, info));
-      } else {
-        warn$3(`failed to get SyntheticStore for arc at [${storage}, ${key}]\nhttps://github.com/PolymerLabs/arcs/issues/2304`);
       }
     }
   }
@@ -28870,9 +29320,9 @@ const SingleUserContext = class {
       // TODO(sjmiles): no mutation
       if (handle.type.isEntity) {
         if (info.data) {
-          // TODO(sjmiles): in the absence of data mutation, when entity changes
-          // it gets an entirely new id, so we cannot use entity id to track this
-          // entity in boxed stores. However as this entity is a Highlander for this
+          // TODO(sjmiles): in the absence of data mutation, when an entity changes
+          // it gets an entirely new id, so we cannot use ids to track entities
+          // in boxed stores. However as this entity is a Highlander for this
           // user and arc (by virtue of not being in a Collection) we can synthesize
           // a stable id.
           info.data.id = boxDataId;
@@ -28960,10 +29410,7 @@ const SingleUserContext = class {
     log$4(`removing entities for [${userid}]`);
     const jobs = [];
     for (let i=0, store; (store=context.stores[i]); i++) {
-      // SYSTEM_users persists across users
-      if (store.id !== 'SYSTEM_users') {
-        jobs.push(this.removeUserStoreEntities(userid, store, isProfile));
-      }
+      jobs.push(this.removeUserStoreEntities(userid, store, isProfile));
     }
     await Promise.all(jobs);
   }
@@ -29277,7 +29724,7 @@ class UserPlanner {
 
   visibleSuggestionsChanged(key, suggestions) {
     log$6(`${suggestions.length} visible suggestions [${key}]:`);
-    suggestions.forEach(({descriptionByModality, plan: {_name}}) => log$6(`\t\t[${_name}]: ${descriptionByModality.text}`));
+    suggestions.forEach(({descriptionByModality, plan: {name}}) => log$6(`\t\t[${name}]: ${descriptionByModality.text}`));
   }
 }
 

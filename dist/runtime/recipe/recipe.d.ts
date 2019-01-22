@@ -1,4 +1,3 @@
-import { Strategy, Descendant } from '../../planning/strategizer.js';
 import { ConnectionConstraint } from './connection-constraint.js';
 import { Particle } from './particle.js';
 import { Search } from './search.js';
@@ -35,10 +34,8 @@ export declare class Recipe {
     newSlot(name: any): Slot;
     removeSlot(slot: any): void;
     isResolved(): boolean;
-    readonly uiParticles: Particle[];
-    getSupportedModalities(): string[];
-    isModalityResolved(): boolean;
-    isCompatibleWithModality(modality: Modality): boolean;
+    isCompatible(modality: Modality): boolean;
+    readonly modality: Modality;
     _findDuplicate(items: any, options: any): any;
     _isValid(options?: any): boolean;
     name: string | undefined;
@@ -69,7 +66,6 @@ export declare class Recipe {
     };
     _copyInto(recipe: any, cloneMap: any): void;
     updateToClone(dict: any): {};
-    static over(results: any, walker: any, strategy: Strategy): Descendant[];
     _makeLocalNameMap(): Map<any, any>;
     toString(options?: any): string;
     getFreeHandles(): Handle[];

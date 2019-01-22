@@ -1,4 +1,4 @@
-import { StorageBase, StorageProviderBase } from './storage-provider-base';
+import { StorageBase, StorageProviderBase, BigCollectionStorageProvider, CollectionStorageProvider, VariableStorageProvider } from './storage-provider-base';
 import firebase from 'firebase/app';
 import 'firebase/database';
 import 'firebase/storage';
@@ -79,7 +79,7 @@ declare abstract class FirebaseStorageProvider extends StorageProviderBase {
  * modifications), but the result will always be
  * monotonically increasing.
  */
-declare class FirebaseVariable extends FirebaseStorageProvider {
+declare class FirebaseVariable extends FirebaseStorageProvider implements VariableStorageProvider {
     private value;
     private localModified;
     private readonly initialized;
@@ -97,7 +97,7 @@ declare class FirebaseVariable extends FirebaseStorageProvider {
     readonly versionForTesting: number;
     get(): Promise<any>;
     set(value: any, originatorId?: any, barrier?: any): Promise<void>;
-    clear(originatorId?: any, barrier?: any): Promise<void>;
+    clear(originatorId?: string, barrier?: string): Promise<void>;
     cloneFrom(handle: any): Promise<void>;
     modelForSynchronization(): Promise<any>;
     toLiteral(): Promise<{}>;
@@ -139,7 +139,7 @@ declare class FirebaseVariable extends FirebaseStorageProvider {
  * When we persist our changes to firebase we align it with the remote
  * version.
  */
-declare class FirebaseCollection extends FirebaseStorageProvider {
+declare class FirebaseCollection extends FirebaseStorageProvider implements CollectionStorageProvider {
     private localChanges;
     private addSuppressions;
     private model;
@@ -154,9 +154,9 @@ declare class FirebaseCollection extends FirebaseStorageProvider {
     backingType(): any;
     remoteStateChanged(dataSnapshot: any): void;
     readonly versionForTesting: number;
-    get(id: any): any;
+    get(id: string): any;
     removeMultiple(items: any, originatorId?: any): Promise<void>;
-    remove(id: any, keys?: string[], originatorId?: any): Promise<void>;
+    remove(id: string, keys?: string[], originatorId?: any): Promise<void>;
     store(value: any, keys: any, originatorId?: any): Promise<void>;
     readonly _hasLocalChanges: boolean;
     _persistChangesImpl(): Promise<void>;
@@ -174,8 +174,8 @@ declare class FirebaseCollection extends FirebaseStorageProvider {
         }[];
     }>;
     toList(): Promise<any[]>;
-    getMultiple(ids: any): Promise<any>;
-    storeMultiple(values: any, keys: any, originatorId?: any): Promise<void>;
+    getMultiple(ids: string[]): Promise<import("./crdt-collection-model").ModelValue[]>;
+    storeMultiple(values: any, keys: string[], originatorId?: any): Promise<void>;
     cloneFrom(handle: any): Promise<void>;
     toLiteral(): Promise<{
         version: number;
@@ -210,15 +210,15 @@ declare class FirebaseCollection extends FirebaseStorageProvider {
  *    }
  * ```
  */
-declare class FirebaseBigCollection extends FirebaseStorageProvider {
+declare class FirebaseBigCollection extends FirebaseStorageProvider implements BigCollectionStorageProvider {
     private cursors;
     private cursorIndex;
     constructor(type: any, storageEngine: any, id: any, reference: any, firebaseKey: any);
     backingType(): any;
     enableReferenceMode(): void;
-    get(id: any): Promise<any>;
-    store(value: any, keys: any, originatorId: any): Promise<void>;
-    remove(id: any, keys: any, originatorId: any): Promise<void>;
+    get(id: string): Promise<any>;
+    store(value: any, keys: string[], originatorId?: string): Promise<void>;
+    remove(id: string, keys: string[], originatorId?: string): Promise<void>;
     /**
      * Returns a FirebaseCursor id for paginated reads of the current version of this BigCollection.
      * The id should be passed to cursorNext() to retrive the contained entities. The cursor itself
@@ -228,23 +228,23 @@ declare class FirebaseBigCollection extends FirebaseStorageProvider {
      * caveat that items removed during a streamed read may be returned at the end). Set forward to
      * false to return items in reverse insertion order.
      */
-    stream(pageSize: any, forward?: boolean): Promise<number>;
+    stream(pageSize: number, forward?: boolean): Promise<number>;
     /**
      * Calls next() on the cursor identified by cursorId. The cursor will be discarded once the end
      * of the stream has been reached.
      */
-    cursorNext(cursorId: any): Promise<{
+    cursorNext(cursorId: number): Promise<{
         value: any[];
         done: boolean;
     } | {
         done: boolean;
     }>;
     /** Calls close() on and discards the cursor identified by cursorId. */
-    cursorClose(cursorId: any): void;
+    cursorClose(cursorId: number): void;
     /**
      * Returns the version at which the cursor identified by cursorId is reading.
      */
-    cursorVersion(cursorId: any): number;
+    cursorVersion(cursorId: number): number;
     _persistChangesImpl(): Promise<void>;
     readonly _hasLocalChanges: boolean;
     cloneFrom(handle: any): Promise<void>;
@@ -253,5 +253,6 @@ declare class FirebaseBigCollection extends FirebaseStorageProvider {
         version: any;
         model: any;
     }): void;
+    clearItemsForTesting(): void;
 }
 export {};

@@ -1,4 +1,4 @@
-import { StorageBase, StorageProviderBase } from './storage-provider-base.js';
+import { BigCollectionStorageProvider, CollectionStorageProvider, StorageBase, StorageProviderBase, VariableStorageProvider } from './storage-provider-base.js';
 import { KeyBase } from './key-base.js';
 import { CrdtCollectionModel } from './crdt-collection-model.js';
 import { Id } from '../id.js';
@@ -40,7 +40,7 @@ declare abstract class VolatileStorageProvider extends StorageProviderBase {
     ensureBackingStore(): Promise<VolatileCollection>;
     abstract backingType(): Type;
 }
-declare class VolatileCollection extends VolatileStorageProvider {
+declare class VolatileCollection extends VolatileStorageProvider implements CollectionStorageProvider {
     _model: CrdtCollectionModel;
     constructor(type: any, storageEngine: any, name: any, id: any, key: any);
     backingType(): any;
@@ -60,18 +60,18 @@ declare class VolatileCollection extends VolatileStorageProvider {
     }): void;
     _toList(): Promise<any[]>;
     toList(): Promise<any[]>;
-    getMultiple(ids: any): Promise<any>;
-    storeMultiple(values: any, keys: any, originatorId?: any): Promise<void>;
-    get(id: any): any;
+    getMultiple(ids: string[]): Promise<import("./crdt-collection-model.js").ModelValue[]>;
+    storeMultiple(values: any, keys: string[], originatorId?: string): Promise<void>;
+    get(id: string): any;
     traceInfo(): {
         items: number;
     };
-    store(value: any, keys: any, originatorId?: any): Promise<void>;
-    removeMultiple(items: any, originatorId?: any): Promise<void>;
+    store(value: any, keys: any, originatorId?: string): Promise<void>;
+    removeMultiple(items: any, originatorId?: string): Promise<void>;
     remove(id: any, keys?: string[], originatorId?: any): Promise<void>;
     clearItemsForTesting(): void;
 }
-declare class VolatileVariable extends VolatileStorageProvider {
+declare class VolatileVariable extends VolatileStorageProvider implements VariableStorageProvider {
     _stored: {
         id: string;
     } | null;
@@ -100,28 +100,28 @@ declare class VolatileVariable extends VolatileStorageProvider {
     get(): Promise<any>;
     set(value: {
         id: string;
-    }, originatorId?: any, barrier?: any): Promise<void>;
-    clear(originatorId?: any, barrier?: any): Promise<void>;
+    }, originatorId?: string, barrier?: string): Promise<void>;
+    clear(originatorId?: string, barrier?: string): Promise<void>;
 }
-declare class VolatileBigCollection extends VolatileStorageProvider {
+declare class VolatileBigCollection extends VolatileStorageProvider implements BigCollectionStorageProvider {
     private items;
     private cursors;
     private cursorIndex;
     constructor(type: any, storageEngine: any, name: any, id: any, key: any);
     enableReferenceMode(): void;
     backingType(): any;
-    get(id: any): Promise<{}>;
-    store(value: any, keys: any, originatorId: any): Promise<void>;
-    remove(id: any, keys: any, originatorId: any): Promise<void>;
-    stream(pageSize: any, forward?: boolean): Promise<number>;
-    cursorNext(cursorId: any): Promise<{
+    get(id: string): Promise<{}>;
+    store(value: any, keys: string[], originatorId?: string): Promise<void>;
+    remove(id: string, keys?: string[], originatorId?: string): Promise<void>;
+    stream(pageSize: number, forward?: boolean): Promise<number>;
+    cursorNext(cursorId: number): Promise<{
         value: any;
         done: boolean;
     } | {
         done: boolean;
     }>;
-    cursorClose(cursorId: any): void;
-    cursorVersion(cursorId: any): number;
+    cursorClose(cursorId: number): void;
+    cursorVersion(cursorId: number): number;
     cloneFrom(handle: any): Promise<void>;
     toLiteral(): {
         version: number;

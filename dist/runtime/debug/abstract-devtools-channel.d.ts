@@ -18,6 +18,7 @@ export declare class AbstractDevtoolsChannel {
     forArc(arc: any): ArcDevtoolsChannel;
     _handleMessage(msg: any): void;
     _flush(messages: any): void;
+    ensureNoCycle(object: any, objectPath?: any[]): void;
 }
 export declare class ArcDevtoolsChannel {
     private channel;

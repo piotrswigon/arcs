@@ -1,7 +1,15 @@
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
 import { Arc } from './arc.js';
 import { SlotComposer } from './slot-composer.js';
 import { Particle } from './recipe/particle.js';
-import { ParticleSpec } from './particle-spec.js';
 export declare class ParticleExecutionHost {
     private _apiPort;
     close: () => void;
@@ -18,7 +26,7 @@ export declare class ParticleExecutionHost {
     sendEvent(particle: any, slotName: any, event: any): void;
     instantiate(particle: any, spec: any, handles: any): any;
     startRender({ particle, slotName, providedSlots, contentTypes }: {
-        particle: ParticleSpec;
+        particle: Particle;
         slotName: string;
         providedSlots: {
             [index: string]: string;
@@ -26,8 +34,8 @@ export declare class ParticleExecutionHost {
         contentTypes: string[];
     }): void;
     stopRender({ particle, slotName }: {
-        particle: ParticleSpec;
+        particle: Particle;
         slotName: string;
     }): void;
-    innerArcRender(transformationParticle: ParticleSpec, transformationSlotName: string, hostedSlotId: string, content: any): void;
+    innerArcRender(transformationParticle: Particle, transformationSlotName: string, hostedSlotId: string, content: any): void;
 }

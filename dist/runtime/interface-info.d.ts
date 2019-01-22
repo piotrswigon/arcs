@@ -7,23 +7,26 @@
  * subject to an additional IP rights grant found at
  * http://polymer.github.io/PATENTS.txt
  */
-import { Type } from './type.js';
+import { Type, TypeVariable } from './type.js';
 interface Handle {
-    type: Type;
-    name: string;
-    direction: string;
+    type?: Type;
+    name?: string | TypeVariable;
+    direction?: string;
 }
 interface Slot {
-    name: string;
-    direction: string;
-    isRequired: boolean;
-    isSet: boolean;
+    name?: string | TypeVariable;
+    direction?: string;
+    isRequired?: boolean;
+    isSet?: boolean;
 }
 export declare class InterfaceInfo {
     name: string;
     handles: Handle[];
     slots: Slot[];
-    private readonly typeVars;
+    readonly typeVars: {
+        object: Handle | Slot;
+        field: string;
+    }[];
     constructor(name: string, handles: Handle[], slots: Slot[]);
     toPrettyString(): string;
     mergeTypeVariablesByName(variableMap: any): void;
@@ -62,12 +65,16 @@ export declare class InterfaceInfo {
     _equalItems(otherItems: any, items: any, compareItem: any): boolean;
     _cloneAndUpdate(update: any): InterfaceInfo;
     static _updateTypeVar(typeVar: any, update: any): void;
-    static isTypeVar(reference: any): any;
+    static isTypeVar(reference: any): boolean;
     static mustMatch(reference: any): boolean;
-    static handlesMatch(interfaceHandle: any, particleHandle: any): any;
+    static handlesMatch(interfaceHandle: any, particleHandle: any): boolean | {
+        var: any;
+        value: any;
+        direction: any;
+    }[];
     static slotsMatch(interfaceSlot: any, particleSlot: any): boolean;
     particleMatches(particleSpec: any): boolean;
-    restrictType(particleSpec: any): false | this;
-    _restrictThis(particleSpec: any): false | this;
+    restrictType(particleSpec: any): boolean;
+    _restrictThis(particleSpec: any): boolean;
 }
 export {};

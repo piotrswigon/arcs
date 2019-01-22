@@ -9,11 +9,12 @@
  */
 import { SlotDomConsumer } from './slot-dom-consumer.js';
 import { Suggestion } from './plan/suggestion.js';
+import { Arc } from './arc.js';
 export declare class SuggestDomConsumer extends SlotDomConsumer {
     _suggestion: Suggestion;
     _suggestionContent: any;
     _eventHandler: any;
-    constructor(containerKind: string, suggestion: Suggestion, suggestionContent: any, eventHandler: any);
+    constructor(arc: Arc, containerKind: string, suggestion: Suggestion, suggestionContent: any, eventHandler: any);
     readonly suggestion: Suggestion;
     readonly templatePrefix: string;
     formatContent(content: any): {
@@ -22,5 +23,5 @@ export declare class SuggestDomConsumer extends SlotDomConsumer {
         model: any;
     };
     onContainerUpdate(container: any, originalContainer: any): void;
-    static render(container: any, plan: any, content: any): SlotDomConsumer;
+    static render(arc: Arc, container: any, plan: any, content: any): SlotDomConsumer;
 }

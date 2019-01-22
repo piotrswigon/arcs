@@ -11,5 +11,5 @@ export declare class MapSlots extends Strategy {
     static slotMatches(slotConnection: SlotConnection, slot: any): boolean;
     static specMatch(slotConnection: any, slot: any): boolean;
     static tagsOrNameMatch(slotConnection: any, slot: any): boolean;
-    static handlesMatch(slotConnection: SlotConnection, slot: any): true | import("../recipe/handle-connection.js").HandleConnection;
+    static handlesMatch(slotConnection: SlotConnection, slot: any): boolean;
 }

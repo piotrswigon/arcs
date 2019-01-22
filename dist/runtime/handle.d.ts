@@ -14,7 +14,7 @@ export interface HandleOptions {
     notifyUpdate: boolean;
     notifyDesync: boolean;
 }
-/** @class Handle
+/**
  * Base class for Collections and Variables.
  */
 export declare abstract class Handle {

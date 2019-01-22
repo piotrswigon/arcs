@@ -38,23 +38,23 @@ export class ArcStoresFetcher {
 
   async _digestStores(stores) {
     const result = [];
-    for (const [store, tags] of stores) {
-      let value = `(don't know how to dereference)`;
-      if (store.toList) {
-        value = await store.toList();
-      } else if (store.get) {
-        value = await store.get();
-      }
-      result.push({
-        name: store.name,
-        tags: tags ? [...tags] : [],
-        id: store.id,
-        storage: store.storageKey,
-        type: store.type,
-        description: store.description,
-        value
-      });
-    }
+    // for (const [store, tags] of stores) {
+    //   let value = `(don't know how to dereference)`;
+    //   if (store.toList) {
+    //     value = await store.toList();
+    //   } else if (store.get) {
+    //     value = await store.get();
+    //   }
+    //   result.push({
+    //     name: store.name,
+    //     tags: tags ? [...tags] : [],
+    //     id: store.id,
+    //     storage: store.storageKey,
+    //     type: store.type,
+    //     description: store.description,
+    //     value
+    //   });
+    // }
     return result;
   }
 }

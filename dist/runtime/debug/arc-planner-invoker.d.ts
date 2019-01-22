@@ -8,26 +8,55 @@
  * http://polymer.github.io/PATENTS.txt
  */
 import { Arc } from '../arc.js';
-import { Planner } from '../planner.js';
+import { Descendant, Strategy, StrategyDerived } from '../../planning/strategizer.js';
+import { Manifest } from '../manifest.js';
+import { Recipe } from '../recipe/recipe.js';
+import { ArcDevtoolsChannel } from './abstract-devtools-channel.js';
 export declare class ArcPlannerInvoker {
-    arc: Arc;
-    planner: Planner;
-    constructor(arc: Arc, arcDevtoolsChannel: any);
-    findManifestNames(manifest: any, predicate: any, fileNames: Set<string>): void;
-    processManifestError({ message }: {
-        message: any;
-    }): {
-        error: any;
-        suggestion: any;
-    };
-    invokePlanner(msg: any): Promise<{
-        error: any;
-        suggestion: any;
-    } | {
-        error: string;
-        results?: undefined;
-    } | {
-        results: any[];
-        error?: undefined;
+    private arc;
+    private recipeIndex;
+    constructor(arc: Arc, arcDevtoolsChannel: ArcDevtoolsChannel);
+    private invokePlanner;
+    multiStrategyRun(recipe: Recipe, method: string): Promise<{
+        results: {
+            recipe: string;
+            derivation: string[];
+            errors: {
+                error: any;
+            }[];
+        }[];
     }>;
+    singleStrategyRun(recipe: Recipe, strategyName: string): Promise<{
+        results: {
+            recipe: string;
+            derivation: string[];
+            errors: {
+                error: any;
+            }[];
+        }[];
+    } | {
+        error: {
+            message: string;
+        };
+    }>;
+    instantiate(strategyClass: StrategyDerived): Strategy;
+    processStrategyOutput(inputs: Descendant[]): {
+        results: {
+            recipe: string;
+            derivation: string[];
+            errors: {
+                error: any;
+            }[];
+        }[];
+    };
+    extractDerivation(result: Descendant): string[];
+    processManifestError(error: any): {
+        suggestion: any;
+        error: {
+            location: any;
+            message: any;
+        };
+    };
+    findManifestNames(manifest: Manifest, predicate: (_: Manifest) => boolean): string[];
+    findManifestNamesRecursive(manifest: Manifest, predicate: (_: Manifest) => boolean, fileNames: Map<string, number>): number;
 }

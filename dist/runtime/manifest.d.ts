@@ -52,6 +52,7 @@ export declare class Manifest {
     readonly allRecipes: Recipe[];
     readonly activeRecipe: Recipe;
     readonly particles: ParticleSpec[];
+    readonly allParticles: ParticleSpec[];
     readonly imports: Manifest[];
     readonly schemas: {
         [index: string]: Schema;
@@ -63,12 +64,12 @@ export declare class Manifest {
     readonly meta: ManifestMeta;
     readonly resources: {};
     applyMeta(section: any): void;
-    createStore(type: any, name: any, id: any, tags: any, storageKey: any): Promise<any>;
+    createStore(type: any, name: any, id: any, tags: any, storageKey?: any): Promise<any>;
     _addStore(store: any, tags: any): any;
     newStorageStub(type: any, name: any, id: any, storageKey: any, tags: any, originalId: any): any;
     _find<a>(manifestFinder: ManifestFinder<a>): a;
     _findAll<a>(manifestFinder: ManifestFinderGenerator<a>): IterableIterator<a>;
-    findSchemaByName(name: any): Schema;
+    findSchemaByName(name: string): Schema;
     findTypeByName(name: any): EntityType | InterfaceType;
     findParticleByName(name: any): ParticleSpec;
     findParticlesByVerb(verb: any): ParticleSpec[];

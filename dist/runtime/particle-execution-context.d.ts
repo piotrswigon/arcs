@@ -23,7 +23,7 @@ export declare class ParticleExecutionContext {
     innerArcHandle(arcId: string, particleId: string): {
         createHandle(type: any, name: any, hostParticle: any): Promise<{}>;
         mapHandle(handle: Handle): Promise<{}>;
-        createSlot(transformationParticle: any, transformationSlotName: any, hostedParticleName: any, hostedSlotName: any, handleId: any): Promise<{}>;
+        createSlot(transformationParticle: any, transformationSlotName: any, handleId: any): Promise<{}>;
         loadRecipe(recipe: any): Promise<{}>;
     };
     getStorageProxy(storageKey: any, type: any): StorageProxy | Promise<StorageProxy>;

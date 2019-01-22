@@ -2,6 +2,7 @@
 import { PouchDbStorageProvider } from './pouch-db-storage-provider';
 import { PouchDbStorage } from './pouch-db-storage.js';
 import { Type } from '../../type.js';
+import { VariableStorageProvider } from '../storage-provider-base.js';
 /**
  * Loosely defines the value object stored.
  */
@@ -26,7 +27,7 @@ interface VariableStorage {
 /**
  * The PouchDB-based implementation of a Variable.
  */
-export declare class PouchDbVariable extends PouchDbStorageProvider {
+export declare class PouchDbVariable extends PouchDbStorageProvider implements VariableStorageProvider {
     private _stored;
     private localKeyId;
     constructor(type: Type, storageEngine: PouchDbStorage, name: string, id: string, key: string);
@@ -64,13 +65,13 @@ export declare class PouchDbVariable extends PouchDbStorageProvider {
      * @param originatorId TBD
      * @param barrier TBD
      */
-    set(value: {}, originatorId?: any, barrier?: any): Promise<void>;
+    set(value: {}, originatorId?: string, barrier?: string): Promise<void>;
     /**
      * Clear a variable from storage.
      * @param originatorId TBD
      * @param barrier TBD
      */
-    clear(originatorId?: any, barrier?: any): Promise<void>;
+    clear(originatorId?: string, barrier?: string): Promise<void>;
     /**
      * Triggered when the storage key has been modified or deleted.
      */

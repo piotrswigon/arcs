@@ -1,22 +1,18 @@
-import { DescriptionFormatter, CombinedDescriptionsOptions, ParticleDescription } from './description.js';
+/**
+ * @license
+ * Copyright (c) 2017 Google Inc. All rights reserved.
+ * This code may only be used under the BSD style license found at
+ * http://polymer.github.io/LICENSE.txt
+ * Code distributed by Google as part of this project is also
+ * subject to an additional IP rights grant found at
+ * http://polymer.github.io/PATENTS.txt
+ */
+import { DescriptionFormatter, CombinedDescriptionsOptions, ParticleDescription } from './description-formatter.js';
 export declare class DescriptionDomFormatter extends DescriptionFormatter {
     private nextID;
     _isSelectedDescription(desc: any): boolean;
-    _populateParticleDescription(particle: any, descriptionByName: any): {
-        pattern: any;
-    } | {
-        pattern?: undefined;
-    } | {
-        template: any;
-        model: any;
-        pattern: any;
-    } | {
-        template: any;
-        model: any;
-        pattern?: undefined;
-    };
-    _combineSelectedDescriptions(selectedDescriptions: ParticleDescription[], options: CombinedDescriptionsOptions): Promise<any>;
-    _retrieveTemplateAndModel(particleDesc: any, index: any, options: any): {
+    _combineSelectedDescriptions(selectedDescriptions: ParticleDescription[], options: CombinedDescriptionsOptions): any;
+    _retrieveTemplateAndModel(particleDesc: ParticleDescription, index: any, options: any): {
         template: any;
         model: any;
     };
@@ -43,7 +39,7 @@ export declare class DescriptionDomFormatter extends DescriptionFormatter {
             [x: string]: any;
         };
     };
-    _formatSingleton(handleName: any, value: any, handleDescription: any): {
+    _formatSingleton(handleName: any, value: any): {
         template: string;
         model: {
             [x: string]: any;

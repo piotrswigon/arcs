@@ -8,34 +8,44 @@
  * http://polymer.github.io/PATENTS.txt
  */
 import { Modality } from './modality.js';
+import { ModalityHandler } from './modality-handler.js';
 import { Arc } from './arc.js';
-import { SlotContext } from './slot-context.js';
+import { SlotContext, ProvidedSlotContext } from './slot-context.js';
 import { SlotConsumer } from './slot-consumer.js';
-import { HostedSlotConsumer } from './hosted-slot-consumer.js';
 import { Particle } from './recipe/particle.js';
+export declare type SlotComposerOptions = {
+    modalityName?: string;
+    modalityHandler?: ModalityHandler;
+    noRoot?: boolean;
+    rootContainer?: any;
+    rootContext?: any;
+    containerKind?: string;
+    containers?: any;
+};
 export declare class SlotComposer {
-    arc: Arc;
     private readonly _containerKind;
-    private _modality;
+    readonly modality: Modality;
+    readonly modalityHandler: ModalityHandler;
     private _consumers;
-    private _contexts;
+    protected _contexts: SlotContext[];
     /**
      * |options| must contain:
-     * - modality: the UI modality the slots composer render to (for example: dom).
+     * - modalityName: the UI modality the slot-composer renders to (for example: dom).
+     * - modalityHandler: the handler for UI modality the slot-composer renders to.
      * - rootContainer: the top level container to be used for slots.
      * and may contain:
      * - containerKind: the type of container wrapping each slot-context's container  (for example, div).
      */
-    constructor(options: any);
-    readonly modality: Modality;
+    constructor(options: SlotComposerOptions);
     readonly consumers: SlotConsumer[];
     readonly containerKind: string;
     getSlotConsumer(particle: Particle, slotName: string): SlotConsumer;
     findContainerByName(name: string): HTMLElement | undefined;
+    findContextsByName(name: string): ProvidedSlotContext[];
     findContextById(slotId: any): SlotContext;
-    createHostedSlot(transformationParticle: any, transformationSlotName: any, hostedParticleName: any, hostedSlotName: any, storeId: any): string;
-    _addSlotConsumer(slot: HostedSlotConsumer): void;
-    initializeRecipe(recipeParticles: Particle[]): void;
+    createHostedSlot(innerArc: Arc, transformationParticle: Particle, transformationSlotName: string, storeId: string): string;
+    _addSlotConsumer(slot: SlotConsumer): void;
+    initializeRecipe(arc: Arc, recipeParticles: Particle[]): void;
     renderSlot(particle: Particle, slotName: string, content: any): Promise<void>;
     getAvailableContexts(): SlotContext[];
     dispose(): void;
