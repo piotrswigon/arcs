@@ -7061,7 +7061,7 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
         const key = btoa(JSON.stringify(data));
         console.log('SIGNAL', data, key);
         document.querySelector('body').innerHTML = `
-          <a href="http://localhost:5007/devtools/?remote-key=${key}" target="_blank">Remote Explorer</a>
+          <a href="https://piotrswigon.github.io/arcs/devtools/?remote-key=${key}" target="_blank">Remote Explorer</a>
           <form>
             <textarea id="incoming" placeholder="Signal..."></textarea>
             <button type="submit">submit</button>
