@@ -10,13 +10,14 @@
 import { Arc } from '../arc.js';
 export declare class AbstractDevtoolsChannel {
     debouncedMessages: any[];
-    debouncing: boolean;
     messageListeners: Map<any, any>;
+    timer: any;
     constructor();
     send(message: any): void;
     listen(arcOrId: any, messageType: any, callback: any): void;
     forArc(arc: any): ArcDevtoolsChannel;
     _handleMessage(msg: any): void;
+    _empty(): void;
     _flush(messages: any): void;
     ensureNoCycle(object: any, objectPath?: any[]): void;
 }

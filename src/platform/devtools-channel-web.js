@@ -14,32 +14,66 @@ import {DevtoolsBroker} from '../../devtools/shared/devtools-broker.js';
 
 export class DevtoolsChannel extends AbstractDevtoolsChannel {
 
+  // offerSignal(label, signal) {
+  //     // https://us-central1-arcs-debugging-switch-demo.cloudfunctions.net/offer
+  //     fetch(`http://localhost:8010/arcs-debugging-switch-demo/us-central1/offer`, {
+  //       method: 'POST',
+  //       headers: {
+  //         'content-type': 'application/json; charset=UTF-8'
+  //       },
+  //       body: JSON.stringify({label, signal})
+
+  //     }).then(response => {
+  //       if (response.status !== 200) {
+  //         console.log('Looks like there was a problem. Status Code: ' +
+  //           response.status);
+  //         return;
+  //       }
+    
+  //       // Examine the text in the response
+  //       response.json().then(function(data) {
+  //         console.log('RESPONSE FROM FUNCTION: ', data);
+  //       });
+  //     }).catch(function(err) {
+  //       console.log('Fetch Error :-S', err);
+  //     });    
+  // }
+
   constructor() {
     super();
 
-    this.remoteExplore = new URLSearchParams(window.location.search).has('remote-explore');
+    const remoteLabel = new URLSearchParams(window.location.search).get('remote-explore');
+    this.remoteInspect = !!remoteLabel;
 
-    if (!this.remoteExplore) {
+    if (!this.remoteInspect) {
       document.addEventListener('arcs-debug-in', e => this._handleMessage(e.detail));
     } else {
-      console.log(`Connecting to Remote Arcs Explorer`);
+
+      const notification = document.createElement('div');
+      notification.innerText = 'Connecting to Remote Explorer...';
+      notification.style.cssText = 'background-color: darkorange; color: white; text-align: center; position: fixed; left: 0; top: 0; right: 0; box-shadow: 0 1px 5px rgba(0,0,0,.5); z-index: 1;';
+
+      const body = document.querySelector('body');
+      body.style.paddingTop = '20px';
+      body.appendChild(notification);
 
       const p = new SimplePeer({initiator: true, trickle: false, objectMode: true});
 
       p.on('signal', (data) => {
         const key = btoa(JSON.stringify(data));
         console.log('SIGNAL', data, key);
-        document.querySelector('body').innerHTML = `
-          <a href="https://piotrswigon.github.io/arcs/devtools/?remote-key=${key}" target="_blank">Remote Explorer</a>
-          <form>
-            <textarea id="incoming" placeholder="Signal..."></textarea>
-            <button type="submit">submit</button>
-          </form>
-        `;
-        document.querySelector('form').addEventListener('submit', e => {
-          e.preventDefault();
-          p.signal(JSON.parse(atob(document.querySelector('#incoming').value)));
+        // this.offerSignal(remoteLabel, key);
+
+        const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');//'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
+
+        hub.subscribe(`${remoteLabel}:answer`).on('data', (message) => {
+          console.log('new message received:', message);
+          p.signal(JSON.parse(atob(message)));
+          hub.close();
         });
+
+        console.log(`broadcasting on ${remoteLabel}:offer`);
+        hub.broadcast(`${remoteLabel}:offer`, key);
       });
 
       p.on('error', (err) => { console.log('error', err); });
@@ -49,9 +83,10 @@ export class DevtoolsChannel extends AbstractDevtoolsChannel {
       });
       
       p.on('data', (msg) => {
-        console.log('received!', msg);
         if (msg === 'init') {
           this.p = p;
+          notification.innerText = '..:: Remote Explorer Connected ::..';
+          notification.style.background = 'red';
           DevtoolsBroker.markConnected();
         } else {
           this._handleMessage(JSON.parse(msg));
@@ -77,7 +112,7 @@ export class DevtoolsChannel extends AbstractDevtoolsChannel {
   }
 
   _flush(messages) {
-    if (this.remoteExplore) {
+    if (this.remoteInspect) {
       if (this.p) {
         this.p.send(JSON.stringify(messages));
       } else {

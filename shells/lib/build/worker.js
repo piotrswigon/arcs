@@ -7325,32 +7325,66 @@ __webpack_require__.r(__webpack_exports__);
 
 class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPACK_IMPORTED_MODULE_0__["AbstractDevtoolsChannel"] {
 
+  // offerSignal(label, signal) {
+  //     // https://us-central1-arcs-debugging-switch-demo.cloudfunctions.net/offer
+  //     fetch(`http://localhost:8010/arcs-debugging-switch-demo/us-central1/offer`, {
+  //       method: 'POST',
+  //       headers: {
+  //         'content-type': 'application/json; charset=UTF-8'
+  //       },
+  //       body: JSON.stringify({label, signal})
+
+  //     }).then(response => {
+  //       if (response.status !== 200) {
+  //         console.log('Looks like there was a problem. Status Code: ' +
+  //           response.status);
+  //         return;
+  //       }
+    
+  //       // Examine the text in the response
+  //       response.json().then(function(data) {
+  //         console.log('RESPONSE FROM FUNCTION: ', data);
+  //       });
+  //     }).catch(function(err) {
+  //       console.log('Fetch Error :-S', err);
+  //     });    
+  // }
+
   constructor() {
     super();
 
-    this.remoteExplore = new URLSearchParams(window.location.search).has('remote-explore');
+    const remoteLabel = new URLSearchParams(window.location.search).get('remote-explore');
+    this.remoteInspect = !!remoteLabel;
 
-    if (!this.remoteExplore) {
+    if (!this.remoteInspect) {
       document.addEventListener('arcs-debug-in', e => this._handleMessage(e.detail));
     } else {
-      console.log(`Connecting to Remote Arcs Explorer`);
+
+      const notification = document.createElement('div');
+      notification.innerText = 'Connecting to Remote Explorer...';
+      notification.style.cssText = 'background-color: darkorange; color: white; text-align: center; position: fixed; left: 0; top: 0; right: 0; box-shadow: 0 1px 5px rgba(0,0,0,.5); z-index: 1;';
+
+      const body = document.querySelector('body');
+      body.style.paddingTop = '20px';
+      body.appendChild(notification);
 
       const p = new SimplePeer({initiator: true, trickle: false, objectMode: true});
 
       p.on('signal', (data) => {
         const key = btoa(JSON.stringify(data));
         console.log('SIGNAL', data, key);
-        document.querySelector('body').innerHTML = `
-          <a href="https://piotrswigon.github.io/arcs/devtools/?remote-key=${key}" target="_blank">Remote Explorer</a>
-          <form>
-            <textarea id="incoming" placeholder="Signal..."></textarea>
-            <button type="submit">submit</button>
-          </form>
-        `;
-        document.querySelector('form').addEventListener('submit', e => {
-          e.preventDefault();
-          p.signal(JSON.parse(atob(document.querySelector('#incoming').value)));
+        // this.offerSignal(remoteLabel, key);
+
+        const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');//'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
+
+        hub.subscribe(`${remoteLabel}:answer`).on('data', (message) => {
+          console.log('new message received:', message);
+          p.signal(JSON.parse(atob(message)));
+          hub.close();
         });
+
+        console.log(`broadcasting on ${remoteLabel}:offer`);
+        hub.broadcast(`${remoteLabel}:offer`, key);
       });
 
       p.on('error', (err) => { console.log('error', err); });
@@ -7360,9 +7394,10 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
       });
       
       p.on('data', (msg) => {
-        console.log('received!', msg);
         if (msg === 'init') {
           this.p = p;
+          notification.innerText = '..:: Remote Explorer Connected ::..';
+          notification.style.background = 'red';
           _devtools_shared_devtools_broker_js__WEBPACK_IMPORTED_MODULE_1__["DevtoolsBroker"].markConnected();
         } else {
           this._handleMessage(JSON.parse(msg));
@@ -7388,7 +7423,7 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
   }
 
   _flush(messages) {
-    if (this.remoteExplore) {
+    if (this.remoteInspect) {
       if (this.p) {
         this.p.send(JSON.stringify(messages));
       } else {
@@ -7425,19 +7460,21 @@ __webpack_require__.r(__webpack_exports__);
 class AbstractDevtoolsChannel {
     constructor() {
         this.debouncedMessages = [];
-        this.debouncing = false;
         this.messageListeners = new Map();
+        this.timer = null;
     }
     send(message) {
         this.ensureNoCycle(message);
         this.debouncedMessages.push(message);
-        if (!this.debouncing) {
-            this.debouncing = true;
-            setTimeout(() => {
-                this._flush(this.debouncedMessages);
-                this.debouncedMessages = [];
-                this.debouncing = false;
-            }, 100);
+        // Temporary workaround for WebRTC slicing messages above 2^18 characters.
+        // Need to find a proper fix. Is there some config in WebRTC to fix this?
+        // If not prefer to slice messages based on their serialized form.
+        // Maybe zip them for transport?
+        if (this.debouncedMessages.length > 10) {
+            this._empty();
+        }
+        else if (!this.timer) {
+            this.timer = setTimeout(() => this._empty(), 100);
         }
     }
     listen(arcOrId, messageType, callback) {
@@ -7462,6 +7499,12 @@ class AbstractDevtoolsChannel {
             for (const listener of listeners)
                 listener(msg);
         }
+    }
+    _empty() {
+        this._flush(this.debouncedMessages);
+        this.debouncedMessages = [];
+        clearTimeout(this.timer);
+        this.timer = null;
     }
     _flush(messages) {
         throw new Error('Not implemented in an abstract class');

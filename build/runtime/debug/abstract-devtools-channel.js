@@ -11,19 +11,21 @@ import { assert } from '../../platform/assert-web.js';
 export class AbstractDevtoolsChannel {
     constructor() {
         this.debouncedMessages = [];
-        this.debouncing = false;
         this.messageListeners = new Map();
+        this.timer = null;
     }
     send(message) {
         this.ensureNoCycle(message);
         this.debouncedMessages.push(message);
-        if (!this.debouncing) {
-            this.debouncing = true;
-            setTimeout(() => {
-                this._flush(this.debouncedMessages);
-                this.debouncedMessages = [];
-                this.debouncing = false;
-            }, 100);
+        // Temporary workaround for WebRTC slicing messages above 2^18 characters.
+        // Need to find a proper fix. Is there some config in WebRTC to fix this?
+        // If not prefer to slice messages based on their serialized form.
+        // Maybe zip them for transport?
+        if (this.debouncedMessages.length > 10) {
+            this._empty();
+        }
+        else if (!this.timer) {
+            this.timer = setTimeout(() => this._empty(), 100);
         }
     }
     listen(arcOrId, messageType, callback) {
@@ -48,6 +50,12 @@ export class AbstractDevtoolsChannel {
             for (const listener of listeners)
                 listener(msg);
         }
+    }
+    _empty() {
+        this._flush(this.debouncedMessages);
+        this.debouncedMessages = [];
+        clearTimeout(this.timer);
+        this.timer = null;
     }
     _flush(messages) {
         throw new Error('Not implemented in an abstract class');

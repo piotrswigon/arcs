@@ -9,10 +9,10 @@
   let windowForEvents = undefined;
 
   const sendMessage = function chooseConnection() {
-    const signal = new URLSearchParams(window.location.search).get('remote-key');
-    if (signal) {
+    const remoteLabel = new URLSearchParams(window.location.search).get('remote');
+    if (remoteLabel) {
       // what if we're in devtools and debugging a device.
-      return connectViaWebRTC(signal);
+      return connectViaWebRTC(remoteLabel);
     } else if (chrome.devtools && chrome.devtools.inspectedWindow.tabId) {
       // Use the extension API if we're in devtools and having a window to inspect.
       return connectViaExtensionApi();
@@ -97,28 +97,55 @@
     return msg => ws.send(JSON.stringify(msg));
   }
 
-  function connectViaWebRTC(signal) {
+  function connectViaWebRTC(remoteLabel) {
+    console.log('Waiting for WebShell to connect...');
 
+    const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');//'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
     
     let exposedP = null;
     const p = new SimplePeer({initatior: false, trickle: false, objectMode: true});
 
-    console.log('Waiting for WebShell to connect...');
     p.on('signal', (data) => {
-      document.querySelector('#signaling').innerHTML = btoa(JSON.stringify(data));
+      console.log('Sending', data);
+      hub.broadcast(`${remoteLabel}:answer`, btoa(JSON.stringify(data)));
+      // document.querySelector('#signaling').innerHTML = btoa(JSON.stringify(data));
+      hub.close();
     });
 
-    const signalD = JSON.parse(atob(signal));
-    console.log('singalD', signalD);
-    p.signal(signalD);
+    console.log(`Listening on ${remoteLabel}:offer`);
+    hub.subscribe(`${remoteLabel}:offer`).on('data', (message) => {
+      console.log('new message received:', message);
+
+      const signalD = JSON.parse(atob(message));
+      console.log('singalD', signalD);
+      p.signal(signalD);
+    });
+
+    // TODO: Add some broadcast for 'READY', so that when devtools connects second,
+    // shell can know to re-broadcast its signal.
+
+    // const signalD = JSON.parse(atob(signal));
+    // console.log('singalD', signalD);
+    // p.signal(signalD);
 
     p.on('connect', () => {
       console.log('CONNECT');
-      document.querySelector('#signaling').innerHTML = '';
+      // document.querySelector('#signaling').innerHTML = '';
       p.send('init');
       exposedP = p;
     });
-    p.on('data', msg => queueOrFire(JSON.parse(msg)));
+    p.on('data', msg => {
+      let m = null;
+      try {
+        // console.log('SIZE:', msg.length / 262528.0);
+        m = JSON.parse(msg);
+      } catch (e) {
+        // Issues with parsing messages sliced by WebRTC...
+        debugger;
+        return;
+      }
+      queueOrFire(m);
+    });
     p.on('error', function(err) { console.log('error', err); });
 
     // const peer = new Peer(peerId);
