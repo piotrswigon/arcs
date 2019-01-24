@@ -9,7 +9,7 @@
   let windowForEvents = undefined;
 
   const sendMessage = function chooseConnection() {
-    const remoteLabel = new URLSearchParams(window.location.search).get('remote');
+    const remoteLabel = new URLSearchParams(window.location.search).get('remote-key');
     if (remoteLabel) {
       // what if we're in devtools and debugging a device.
       return connectViaWebRTC(remoteLabel);
@@ -98,7 +98,7 @@
   }
 
   function connectViaWebRTC(remoteLabel) {
-    console.log('Waiting for WebShell to connect...');
+    console.log(`Establishing connection with Remote WebShell on "${remoteLabel}".`);
 
     const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');//'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
     
@@ -106,31 +106,23 @@
     const p = new SimplePeer({initatior: false, trickle: false, objectMode: true});
 
     p.on('signal', (data) => {
-      console.log('Sending', data);
-      hub.broadcast(`${remoteLabel}:answer`, btoa(JSON.stringify(data)));
-      // document.querySelector('#signaling').innerHTML = btoa(JSON.stringify(data));
+      const signal = data;
+      console.log(`broadcasting my signal on ${remoteLabel}:answer`, signal);
+      hub.broadcast(`${remoteLabel}:answer`, btoa(JSON.stringify(signal)));
       hub.close();
     });
 
     console.log(`Listening on ${remoteLabel}:offer`);
     hub.subscribe(`${remoteLabel}:offer`).on('data', (message) => {
-      console.log('new message received:', message);
-
-      const signalD = JSON.parse(atob(message));
-      console.log('singalD', signalD);
-      p.signal(signalD);
+      const receivedSignal = JSON.parse(atob(message));
+      console.log(`received signal on ${remoteLabel}:offer:`, receivedSignal);
+      p.signal(receivedSignal);
     });
 
-    // TODO: Add some broadcast for 'READY', so that when devtools connects second,
-    // shell can know to re-broadcast its signal.
-
-    // const signalD = JSON.parse(atob(signal));
-    // console.log('singalD', signalD);
-    // p.signal(signalD);
+    hub.broadcast(`${remoteLabel}:answer`, 'waiting');
 
     p.on('connect', () => {
-      console.log('CONNECT');
-      // document.querySelector('#signaling').innerHTML = '';
+      console.log('WebRTC channel established!');
       p.send('init');
       exposedP = p;
     });

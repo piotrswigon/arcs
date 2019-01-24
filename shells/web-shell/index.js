@@ -9,7 +9,7 @@ window.debugLevel = Xen.Debug.level = logLevel;
 (async () => {
   const body = document.querySelector('body');
 
-  if (params.has('remote-explore')) {
+  if (params.has('remote-key')) {
     DevtoolsConnection.ensure();
     await DevtoolsConnection.onceConnected;
   }

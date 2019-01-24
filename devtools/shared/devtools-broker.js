@@ -16,17 +16,17 @@
 // Arcs have different instances.
 const root = typeof window === 'object' ? window : global;
 
-if (!root._arcDebugPromise) {
-  root._arcDebugPromise = new Promise(resolve => {
-    root._arcDebugPromiseResolve = resolve;
+if (!root._arcDebugPromise2) {
+  root._arcDebugPromise2 = new Promise(resolve => {
+    root._arcDebugPromise2Resolve = resolve;
   });
 }
 
 export class DevtoolsBroker {
   static get onceConnected() {
-    return root._arcDebugPromise;
+    return root._arcDebugPromise2;
   }
   static markConnected() {
-    root._arcDebugPromiseResolve();
+    root._arcDebugPromise2Resolve();
   }
 }

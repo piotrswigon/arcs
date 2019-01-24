@@ -7325,6 +7325,8 @@ __webpack_require__.r(__webpack_exports__);
 
 class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPACK_IMPORTED_MODULE_0__["AbstractDevtoolsChannel"] {
 
+  // Attempt at cloud functions for singalling.
+  //
   // offerSignal(label, signal) {
   //     // https://us-central1-arcs-debugging-switch-demo.cloudfunctions.net/offer
   //     fetch(`http://localhost:8010/arcs-debugging-switch-demo/us-central1/offer`, {
@@ -7353,51 +7355,67 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
   constructor() {
     super();
 
-    const remoteLabel = new URLSearchParams(window.location.search).get('remote-explore');
+    const remoteLabel = new URLSearchParams(window.location.search).get('remote-key');
     this.remoteInspect = !!remoteLabel;
 
     if (!this.remoteInspect) {
       document.addEventListener('arcs-debug-in', e => this._handleMessage(e.detail));
     } else {
+      console.log(`Establishing connection with Remote ArcsExplorer on "${remoteLabel}".`);
+
+      // How to deal with old arcs-explorer marking stuff as connected????
 
       const notification = document.createElement('div');
       notification.innerText = 'Connecting to Remote Explorer...';
-      notification.style.cssText = 'background-color: darkorange; color: white; text-align: center; position: fixed; left: 0; top: 0; right: 0; box-shadow: 0 1px 5px rgba(0,0,0,.5); z-index: 1;';
+      notification.style.cssText = 'background-color: darkorange; font-size: 12px; font-weight: bold; color: white; text-align: center; position: fixed; left: 0; top: 0; right: 0; box-shadow: 0 0 4px rgba(0,0,0,.5); z-index: 1;';
 
       const body = document.querySelector('body');
-      body.style.paddingTop = '20px';
+      body.style.paddingTop = '16px';
       body.appendChild(notification);
 
       const p = new SimplePeer({initiator: true, trickle: false, objectMode: true});
 
       p.on('signal', (data) => {
-        const key = btoa(JSON.stringify(data));
-        console.log('SIGNAL', data, key);
-        // this.offerSignal(remoteLabel, key);
+        const encoded = btoa(JSON.stringify(data));
+        //'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
+        const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');
 
-        const hub = signalhub('arcs-demo', 'https://arcs-debug-switch.herokuapp.com/');//'https://signalhub-jccqtwhdwc.now.sh'); //'http://localhost:8999');//
+        let receivedAnswer = false;
 
         hub.subscribe(`${remoteLabel}:answer`).on('data', (message) => {
-          console.log('new message received:', message);
-          p.signal(JSON.parse(atob(message)));
-          hub.close();
+          if (message === 'waiting') {
+            console.log('Received:', message);
+            setTimeout(() => {
+              if (!receivedAnswer) {
+                // Re-broadcast if we connected first and our offer was lost.
+                console.log(`Re-broadcasting my signal on ${remoteLabel}:offer:`, data);
+                hub.broadcast(`${remoteLabel}:offer`, encoded);
+              }
+            }, 500);
+          } else {
+            receivedAnswer = true;
+            const receivedSignal = JSON.parse(atob(message));
+            console.log(`Received on ${remoteLabel}:answer:`, receivedSignal);
+            p.signal(receivedSignal);
+            hub.close();
+          }
         });
 
-        console.log(`broadcasting on ${remoteLabel}:offer`);
-        hub.broadcast(`${remoteLabel}:offer`, key);
+        console.log(`Broadcasting my signal on ${remoteLabel}:offer:`, data);
+        hub.broadcast(`${remoteLabel}:offer`, encoded);
       });
 
       p.on('error', (err) => { console.log('error', err); });
 
       p.on('connect', () => {
-        console.log('CONNECT');
+        console.log('WebRTC channel established!');
       });
       
       p.on('data', (msg) => {
         if (msg === 'init') {
           this.p = p;
-          notification.innerText = '..:: Remote Explorer Connected ::..';
-          notification.style.background = 'red';
+          notification.innerText = 'Remote Explorer Connected';
+          notification.style.background = 'Red';
           _devtools_shared_devtools_broker_js__WEBPACK_IMPORTED_MODULE_1__["DevtoolsBroker"].markConnected();
         } else {
           this._handleMessage(JSON.parse(msg));
@@ -7417,7 +7435,6 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
       //     }
       //   });
       // });
-
       // conn.on('error', x => console.log(x));
     }
   }
@@ -7427,7 +7444,6 @@ class DevtoolsChannel extends _runtime_debug_abstract_devtools_channel_js__WEBPA
       if (this.p) {
         this.p.send(JSON.stringify(messages));
       } else {
-        debugger;
         throw new Error(); // maybe?
       }
     } else {
@@ -7558,18 +7574,18 @@ __webpack_require__.r(__webpack_exports__);
 // Arcs have different instances.
 const root = typeof window === 'object' ? window : global;
 
-if (!root._arcDebugPromise) {
-  root._arcDebugPromise = new Promise(resolve => {
-    root._arcDebugPromiseResolve = resolve;
+if (!root._arcDebugPromise2) {
+  root._arcDebugPromise2 = new Promise(resolve => {
+    root._arcDebugPromise2Resolve = resolve;
   });
 }
 
 class DevtoolsBroker {
   static get onceConnected() {
-    return root._arcDebugPromise;
+    return root._arcDebugPromise2;
   }
   static markConnected() {
-    root._arcDebugPromiseResolve();
+    root._arcDebugPromise2Resolve();
   }
 }
 
