@@ -56,7 +56,7 @@ export class SuggestDomConsumer extends SlotDomConsumer {
     const consumer = new SlotDomConsumer(arc);
     consumer.addRenderingBySubId(undefined, rendering);
     consumer.eventHandler = (() => {});
-    consumer._stampTemplate(rendering, consumer.createTemplateElement(content.template));
+    consumer._stampTemplate(rendering, SlotDomConsumer.createTemplateElement(content.template));
     consumer._onUpdate(rendering);
     return consumer;
   }

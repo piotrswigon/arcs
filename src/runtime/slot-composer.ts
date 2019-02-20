@@ -17,6 +17,7 @@ import {Modality} from './modality.js';
 import {Particle} from './recipe/particle.js';
 import {SlotConsumer} from './slot-consumer.js';
 import {HostedSlotContext, ProvidedSlotContext, SlotContext} from './slot-context.js';
+import {SlotDomConsumer} from './slot-dom-consumer.js';
 
 export type SlotComposerOptions = {
   modalityName?: string;
@@ -152,6 +153,8 @@ export class SlotComposer {
   async renderSlot(particle: Particle, slotName: string, content) {
     const slotConsumer = this.getSlotConsumer(particle, slotName);
     assert(slotConsumer, `Cannot find slot (or hosted slot) ${slotName} for particle ${particle.name}`);
+
+    if (content.template) SlotDomConsumer.setTemplate([particle.name, slotName, content.templateName].join('::'), content.template);
 
     const description = await Description.create(slotConsumer.arc);
     slotConsumer.slotContext.onRenderSlot(slotConsumer, content, async (eventlet) => {

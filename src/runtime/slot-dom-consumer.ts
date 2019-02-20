@@ -41,6 +41,11 @@ export class SlotDomConsumer extends SlotConsumer {
     return [...templateByName.keys()].find(key => key.startsWith(templatePrefix));
   }
 
+  static setTemplate(name, template) {
+    if (SlotDomConsumer.hasTemplate(name)) return;
+    templateByName.set(name, this.createTemplateElement(template));
+  }
+
   isSameContainer(container, contextContainer) {
     return container.parentNode === contextContainer;
   }
@@ -174,7 +179,7 @@ export class SlotDomConsumer extends SlotConsumer {
     return containerBySlotId;
   }
 
-  createTemplateElement(template) {
+  static createTemplateElement(template) {
     return Object.assign(document.createElement('template'), {innerHTML: template});
   }
 
@@ -191,7 +196,7 @@ export class SlotDomConsumer extends SlotConsumer {
           // Template is being replaced.
           this.clearContainer(rendering);
         }
-        templateByName.set(rendering.templateName, this.createTemplateElement(template));
+        templateByName.set(rendering.templateName, SlotDomConsumer.createTemplateElement(template));
       }
     }
   }
