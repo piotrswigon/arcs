@@ -4,6 +4,7 @@ import '../deps/@polymer/iron-icons/iron-icons.js';
 import '../deps/@polymer/iron-icons/device-icons.js';
 import '../deps/@polymer/iron-icons/social-icons.js';
 import '../deps/@polymer/iron-icons/communication-icons.js';
+import '../deps/@polymer/iron-icons/notification-icons.js';
 import '../deps/@polymer/iron-pages/iron-pages.js';
 import '../deps/@polymer/iron-selector/iron-selector.js';
 import {PolymerElement} from '../deps/@polymer/polymer/polymer-element.js';
@@ -17,7 +18,7 @@ import './arcs-tracing.js';
 import './arcs-pec-log.js';
 import './arcs-selector.js';
 import './strategy-explorer/strategy-explorer.js';
-import './arcs-recipe-editor.js';
+import './arcs-recipe-editor.js';;
 import {html} from '../deps/@polymer/polymer/lib/utils/html-tag.js';
 
 class ArcsDevtoolsApp extends MessengerMixin(PolymerElement) {
@@ -39,6 +40,9 @@ class ArcsDevtoolsApp extends MessengerMixin(PolymerElement) {
       header {
         min-width: max-content;
         grid-area: header;
+      }
+      header iron-icon[connection] {
+        height: 20px;
       }
       iron-selector {
         width: max-content;
@@ -94,8 +98,9 @@ class ArcsDevtoolsApp extends MessengerMixin(PolymerElement) {
         display: none;
       }
     </style>
+    <modal-window></modal-window>
     <div id="container">
-      <arcs-communication-channel></arcs-communication-channel>
+      <arcs-communication-channel id="communicationChannel"></arcs-communication-channel>
       <app-location route="{{route}}" query-params="{{queryParams}}" use-hash-as-path="">
       </app-location>
       <app-route route="{{route}}" pattern=":page" data="{{routeData}}" tail="{{tail}}">
@@ -114,6 +119,9 @@ class ArcsDevtoolsApp extends MessengerMixin(PolymerElement) {
             <a name="traces" href="#traces"><iron-icon icon="communication:clear-all" title="Tracing"></iron-icon><span tab-header>Tracing</span></a>
             <a name="recipeEditor" href="#recipeEditor"><iron-icon icon="image:edit" title="Editor"></iron-icon><span tab-header>Editor</span></a>
           </iron-selector>
+        </div>
+        <div section>
+          <iron-icon connection icon="notification:power" title="Connection to Arcs" on-click="openConnectionDetails">
         </div>
       </header>
       <iron-pages selected="[[routeData.page]]" attr-for-selected="name" selected-attribute="active" role="main" id="pages">
@@ -136,6 +144,10 @@ class ArcsDevtoolsApp extends MessengerMixin(PolymerElement) {
     if (!this.routeData.page) {
       this.set('routeData.page', 'overview');
     }
+  }
+
+  openConnectionDetails() {
+    this.$.communicationChannel.open();
   }
 }
 
