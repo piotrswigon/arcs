@@ -23,6 +23,35 @@ import {Slot} from '../runtime/recipe/slot.js';
 
 type StackFrame = {method:string, location?:string, target?:string, targetClass?:string};
 
+const particleSources: Set<string> = new Set();
+const arcsToKeepFresh: Arc[] = [];
+
+let hotReloadWs = new WebSocket('ws://localhost:10101');
+hotReloadWs.onopen = e => {
+  console.log(`Established connection to HotReloadServer.`);
+  hotReloadWs.onmessage = msg => {
+    const filepath = msg.data;
+    console.log('Registered modification to: ', filepath);
+    const arcs = [...arcsToKeepFresh];
+    for (const arc of arcsToKeepFresh) {
+      // This only expands one level of inner arcs, do this recursively.
+      for (const inner of arc.innerArcsByParticle.values()) {
+        arcs.push(...inner);
+      }
+    }
+    for (const arc of arcs) {
+      for (const particle of arc.pec.particles) {
+        if (particle.spec.implFile === filepath) {
+          arc.pec.reboot(particle);
+        }
+      }
+    }
+  }
+};
+hotReloadWs.onerror = e => {
+  console.log(`No WebSocket connection found.`);
+};
+
 // Arc-independent handlers for devtools logic.
 void DevtoolsConnection.onceConnected.then(devtoolsChannel => {
   enableTracingAdapter(devtoolsChannel);
@@ -40,9 +69,16 @@ class DevtoolsArcInspector implements ArcInspector {
 
   private onceActiveResolve: Runnable|null = null;
   public onceActive: Promise<void>|null = null;
+  private arc: Arc;
   
   constructor(arc: Arc) {
+    this.arc = arc;
     if (arc.isStub) return;
+
+    if (!arc.isSpeculative) {
+      arcsToKeepFresh.push(arc);
+      this.updateParticleSet(arc.activeRecipe.particles);
+    }
 
     this.onceActive = new Promise(resolve => this.onceActiveResolve = resolve);
 
@@ -93,6 +129,15 @@ class DevtoolsArcInspector implements ArcInspector {
       messageType: 'recipe-instantiated',
       messageBody: {slotConnections, activeRecipe}
     });
+    if (!this.arc.isSpeculative) this.updateParticleSet(particles);
+  }
+
+  private updateParticleSet(particles: Particle[]) {
+    const before = particleSources.size;
+    for (const particle of particles) {
+      particleSources.add(particle.spec.implFile);
+    }
+    if (particleSources.size > before) hotReloadWs.send(JSON.stringify([...particleSources]));    
   }
 
   public pecMessage(name: string, pecMsgBody: object, pecMsgCount: number, stackString: string) {

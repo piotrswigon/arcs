@@ -34,6 +34,13 @@ export type InnerArcHandle = {
   loadRecipe(recipe: string): Promise<{error?: string}>;
 };
 
+type ParticleIndex = {
+  spec: ParticleSpec;
+  particle: Particle;
+  registerList: {proxy: StorageProxy, particle: Particle, handle: Handle}[];
+  handleMap: Map<string, Handle>;
+}
+
 export class ParticleExecutionContext {
   private readonly apiPort : PECInnerPort;
   private readonly particles = <Particle[]>[];
@@ -42,6 +49,7 @@ export class ParticleExecutionContext {
   private readonly pendingLoads = <Promise<void>[]>[];
   private readonly scheduler: StorageProxyScheduler = new StorageProxyScheduler();
   private readonly keyedProxies: Dictionary<StorageProxy | Promise<StorageProxy>> = {};
+  private readonly keyedParticles: Dictionary<ParticleIndex> = {};
 
   readonly idGenerator: IdGenerator;
 
@@ -85,6 +93,10 @@ export class ParticleExecutionContext {
 
       async onInstantiateParticle(id: string, spec: ParticleSpec, proxies: ReadonlyMap<string, StorageProxy>) {
         return pec.instantiateParticle(id, spec, proxies);
+      }
+
+      async onRebootParticle(id: string) {
+        return pec.rebootParticle(id);
       }
 
       onSimpleCallback(callback: ({}) => void, data: {}) {
@@ -203,21 +215,57 @@ export class ParticleExecutionContext {
     };
   }
 
+  private async rebootParticle(id: string) {
+    let {spec, registerList, handleMap} = this.keyedParticles[id];
+    delete spec.implBlobUrl;
+    const oldParticle = this.keyedParticles[id].particle;
+    registerList.forEach(({proxy, handle}) => proxy.deregister(oldParticle, handle));
+
+    const slotProxies = new Map(oldParticle.slotProxiesByName);
+    slotProxies.forEach((_, name) => oldParticle.removeSlotProxy(name));
+
+    let resolve: Runnable;
+    const p = new Promise<void>(res => resolve = res);
+    this.pendingLoads.push(p);
+
+    const particle = await this.instantiate(spec);
+    const index = this.particles.findIndex(p => p === oldParticle);
+    this.particles[index] = particle;
+    this.keyedParticles[id].particle = particle;
+
+    // WARNING: SHORTCUT.
+    // We should create new handles and disable old ones,
+    // so that old particle cannot write to storage anymore.
+
+    return [particle, async () => {
+      await particle.callSetHandles(handleMap, err => {
+        const exc = new UserException(err, 'setHandles', id, spec.name);
+        this.apiPort.ReportExceptionInHost(exc);
+      });
+      registerList.forEach(({proxy, handle}) => proxy.register(particle, handle));
+
+      slotProxies.forEach((proxy, name) => {
+        proxy.particle = particle;
+        particle.addSlotProxy(proxy);
+        // WARNING: this is causing a first empty render, which is then messing up with slots
+        // on the host side. It should not, but it does. Investigate why. Also maybe schedule
+        // the first render after handles have been properly synced.
+        particle.renderSlot(name, ["model", "template", "templateName"]);
+      });
+
+      const idx = this.pendingLoads.indexOf(p);
+      this.pendingLoads.splice(idx, 1);
+      resolve();
+    }];
+  }
+
   // tslint:disable-next-line: no-any
   private async instantiateParticle(id: string, spec: ParticleSpec, proxies: ReadonlyMap<string, StorageProxy>): Promise<[any, () => Promise<void>]> {
     let resolve: Runnable;
     const p = new Promise<void>(res => resolve = res);
     this.pendingLoads.push(p);
 
-    let particle: Particle;
-    if (spec.implFile && spec.implFile.endsWith('.wasm')) {
-      particle = await this.loadWasmParticle(spec);
-      particle.setCapabilities({});
-    } else {
-      const clazz = await this.loader.loadParticleClass(spec);
-      particle = new clazz();
-      particle.setCapabilities(this.defaultCapabilitySet());
-    }
+    const particle = await this.instantiate(spec);
     this.particles.push(particle);
 
     const handleMap = new Map();
@@ -233,6 +281,13 @@ export class ParticleExecutionContext {
       registerList.push({proxy, particle, handle});
     });
 
+    this.keyedParticles[id] = {
+      spec,
+      particle,
+      registerList,
+      handleMap
+    };
+
     return [particle, async () => {
       await particle.callSetHandles(handleMap, err => {
         const exc = new UserException(err, 'setHandles', id, spec.name);
@@ -243,6 +298,19 @@ export class ParticleExecutionContext {
       this.pendingLoads.splice(idx, 1);
       resolve();
     }];
+  }
+
+  private async instantiate(spec: ParticleSpec) {
+    if (spec.implFile && spec.implFile.endsWith('.wasm')) {
+      const particle = await this.loadWasmParticle(spec);
+      particle.setCapabilities({});
+      return particle;
+    } else {
+      const clazz = await this.loader.loadParticleClass(spec);
+      const particle = new clazz();
+      particle.setCapabilities(this.defaultCapabilitySet());
+      return particle;
+    }
   }
 
   private async loadWasmParticle(spec: ParticleSpec) {

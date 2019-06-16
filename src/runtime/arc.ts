@@ -83,7 +83,7 @@ export class Arc {
   private waitForIdlePromise: Promise<void> | null;
   private readonly inspectorFactory?: ArcInspectorFactory;
   public readonly inspector?: ArcInspector;
-  private readonly innerArcsByParticle: Map<Particle, Arc[]> = new Map();
+  public readonly innerArcsByParticle: Map<Particle, Arc[]> = new Map();
   private readonly instantiateMutex = new Mutex();
 
   readonly id: Id;
