@@ -113,12 +113,15 @@ export class SlotConsumer {
           this._renderingBySubId.set(subId, {});
         }
         const rendering = this.getRendering(subId);
-        if (!rendering.container || !this.isSameContainer(rendering.container, container)) {
-          if (rendering.container) {
-            // The rendering already had a container, but it's changed. The original container needs to be cleared.
-            this.clearContainer(rendering);
-          }
+        if (!rendering.container) {
           rendering.container = this.createNewContainer(container, subId);
+        } else if (!this.isSameContainer(rendering.container, container)) {
+          const newContainer = document.createElement(this.containerKind || 'div');
+          if (this.consumeConn) {
+            newContainer.setAttribute('particle-host', this.consumeConn.getQualifiedName());
+          }
+          container.appendChild(newContainer);
+          newContainer.appendChild(rendering.container);          
         }
       }
       for (const [subId, rendering] of this.renderings) {
