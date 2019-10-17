@@ -1,6 +1,11 @@
 particle RenderNotification in './source/RenderNotification.js'
   consume root
-  modality notification 
+  modality notification
+
+particle HelloWorldParticle in 'http://localhost:8786/bazel-bin/particles/Tutorial/Kotlin/hello_world.wasm'
+  consume root
+  modality notification
 
 recipe NotificationTest
   RenderNotification
+  HelloWorldParticle

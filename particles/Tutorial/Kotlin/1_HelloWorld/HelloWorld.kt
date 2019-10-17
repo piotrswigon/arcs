@@ -7,6 +7,10 @@ import kotlin.native.internal.ExportForCppRuntime
  */
 class HelloWorldParticle : Particle() {
 
+  init {
+    log("init HelloWorldParticle")
+  }
+
   override fun onHandleUpdate(handle: Handle) {
     renderSlot("root")
   }
