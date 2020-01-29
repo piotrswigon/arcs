@@ -15,7 +15,7 @@ class SpecialSchemaFieldsTest : TestBase<SpecialSchemaFieldsTest_Errors>(
     ::SpecialSchemaFieldsTest_Errors,
     SpecialSchemaFieldsTest_Errors_Spec()
 ) {
-    private val unused = WasmSingletonImpl(
+    private val unused = WasmSingleton(
         this, "fields", SpecialSchemaFieldsTest_Fields_Spec()
     )
 

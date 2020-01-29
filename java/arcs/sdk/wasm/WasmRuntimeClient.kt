@@ -13,13 +13,13 @@ package arcs.sdk.wasm
 
 object WasmRuntimeClient {
     fun <T : WasmEntity> singletonClear(
-        particle: WasmParticleImpl,
-        singleton: WasmSingletonImpl<T>
+        particle: WasmParticle,
+        singleton: WasmSingleton<T>
     ) = singletonClear(particle.toAddress(), singleton.toAddress())
 
     fun <T : WasmEntity> singletonSet(
-        particle: WasmParticleImpl,
-        singleton: WasmSingletonImpl<T>,
+        particle: WasmParticle,
+        singleton: WasmSingleton<T>,
         encoded: NullTermByteArray
     ) = singletonSet(
         particle.toAddress(),
@@ -28,8 +28,8 @@ object WasmRuntimeClient {
     )
 
     fun <T : WasmEntity> collectionRemove(
-        particle: WasmParticleImpl,
-        collection: WasmCollectionImpl<T>,
+        particle: WasmParticle,
+        collection: WasmCollection<T>,
         encoded: NullTermByteArray
     ) = collectionRemove(
         particle.toAddress(),
@@ -38,14 +38,14 @@ object WasmRuntimeClient {
     )
 
     fun <T : WasmEntity> collectionClear(
-        particle: WasmParticleImpl,
-        collection: WasmCollectionImpl<T>
+        particle: WasmParticle,
+        collection: WasmCollection<T>
     ) =
         collectionClear(particle.toAddress(), collection.toAddress())
 
     fun <T : WasmEntity> collectionStore(
-        particle: WasmParticleImpl,
-        collection: WasmCollectionImpl<T>,
+        particle: WasmParticle,
+        collection: WasmCollection<T>,
         encoded: NullTermByteArray
     ): String? {
         val wasmId = collectionStore(
@@ -58,7 +58,7 @@ object WasmRuntimeClient {
 
     fun log(msg: String) = arcs.sdk.wasm.log(msg)
 
-    fun onRenderOutput(particle: WasmParticleImpl, template: String?, model: NullTermByteArray?) =
+    fun onRenderOutput(particle: WasmParticle, template: String?, model: NullTermByteArray?) =
         onRenderOutput(
             particle.toAddress(),
             template.toWasmNullableString(),
@@ -66,7 +66,7 @@ object WasmRuntimeClient {
         )
 
     fun serviceRequest(
-        particle: WasmParticleImpl,
+        particle: WasmParticle,
         call: String,
         encoded: NullTermByteArray,
         tag: String

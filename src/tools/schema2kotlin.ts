@@ -86,7 +86,7 @@ ${this.opts.wasm ? 'import arcs.sdk.wasm.*' : ''}
       handleDecls.push(`protected val ${handleName}: ${handleInterfaceType} = ${this.getType(handleConcreteType) + 'Impl'}(this, "${handleName}", ${entityType}_Spec())`);
     }
     return `
-abstract class Abstract${particleName} : ${this.opts.wasm ? 'WasmParticleImpl' : 'BaseParticle'}() {
+abstract class Abstract${particleName} : ${this.opts.wasm ? 'WasmParticle' : 'BaseParticle'}() {
     ${handleDecls.join('\n    ')}
 }
 `;

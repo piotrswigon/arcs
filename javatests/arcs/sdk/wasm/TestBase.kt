@@ -17,11 +17,11 @@ import kotlin.test.Asserter
 open class TestBase<T : WasmEntity>(
     val ctor: (txt: String) -> T,
     spec: WasmEntitySpec<T>
-) : WasmParticleImpl(), Asserter {
-    private val errors = WasmCollectionImpl(this, "errors", spec)
+) : WasmParticle(), Asserter {
+    private val errors = WasmCollection(this, "errors", spec)
 
     private fun <T : WasmEntity> assertContainerEqual(
-        container: WasmCollectionImpl<T>,
+        container: WasmCollection<T>,
         converter: (T) -> String,
         expected: List<String>,
         isOrdered: Boolean = true
