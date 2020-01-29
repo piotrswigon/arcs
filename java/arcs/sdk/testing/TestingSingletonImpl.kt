@@ -1,3 +1,5 @@
+package arcs.sdk.testing
+
 /*
  * Copyright 2020 Google LLC.
  *
@@ -9,39 +11,30 @@
  * http://polymer.github.io/PATENTS.txt
  */
 
-package arcs.sdk
-
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.*
+import arcs.sdk.Entity
+import arcs.sdk.EntitySpec
+import arcs.sdk.Particle
+import arcs.sdk.ReadWriteSingleton
 
 /** [ReadWriteSingleton] implementation for the JVM. */
 @Suppress("UNUSED_PARAMETER")
 // TODO: Connect to storage.
 class SingletonImpl<T : Entity>(
-    private val particle: Particle,
-    override val name: String,
-    entitySpec: EntitySpec<T>
+        private val particle: Particle,
+        override val name: String,
+        entitySpec: EntitySpec<T>
 ) : ReadWriteSingleton<T> {
-
-    val updatesChannel = BroadcastChannel<T?>(10)
-
     private var entity: T? = null
 
     override fun get(): T? = entity
 
     override fun set(entity: T) {
         this.entity = entity
-        updatesChannel.offer(entity)
         particle.onHandleUpdate(this)
     }
 
     override fun clear() {
         this.entity = null
-        updatesChannel.offer(null)
         particle.onHandleUpdate(this)
     }
-
-    override val updates: Flow<T?>
-            get() = updatesChannel.asFlow()
 }

@@ -30,7 +30,7 @@ class WasmSingletonImpl<T : WasmEntity>(
 
     override fun get() = entity
 
-    override fun set(entity: T) {
+    override fun set(entity: T?) {
         this.entity = entity
         val encoded = entity.encodeEntity()
         WasmRuntimeClient.singletonSet(particle, this, encoded)

@@ -91,7 +91,8 @@ def arcs_kt_library(
         deps = [],
         visibility = None,
         wasm = True,
-        jvm = True):
+        jvm = True,
+        testing = True):
     """Declares kotlin library targets for Kotlin particle sources.
 
     Defines both jvm and wasm Kotlin libraries.
@@ -111,16 +112,24 @@ def arcs_kt_library(
         arcs_kt_jvm_library(
             name = name,
             # Exclude any wasm-specific srcs.
-            srcs = [src for src in srcs if not src.endswith(".wasm.kt")],
+            srcs = [src for src in srcs if (not src.endswith(".wasm.kt") and not src.endswith('.testing.kt'))],
             deps = [_to_jvm_dep(dep) for dep in deps],
             visibility = visibility,
         )
-
+    
+    if testing:
+        arcs_kt_jvm_library(
+            name = name + "-testing",
+            # Exclude any wasm-specific srcs.
+            srcs = [src for src in srcs if (not src.endswith(".wasm.kt") and not src.endswith('.jvm.kt'))],
+            deps = [_to_jvm_dep(dep) for dep in deps],
+            visibility = visibility,
+        )
     if wasm:
         arcs_kt_native_library(
             name = name + _WASM_SUFFIX,
             # Exclude any jvm-specific srcs.
-            srcs = [src for src in srcs if not src.endswith(".jvm.kt")],
+            srcs = [src for src in srcs if (not src.endswith(".jvm.kt") and not src.endswith('.testing.kt'))],
             deps = [_to_wasm_dep(dep) for dep in deps],
             visibility = visibility,
         )
@@ -132,7 +141,8 @@ def arcs_kt_particles(
         deps = [],
         visibility = None,
         wasm = True,
-        jvm = True):
+        jvm = True,
+        testing = True):
     """Performs final compilation of wasm and bundling if necessary.
 
     Args:
@@ -146,8 +156,8 @@ def arcs_kt_particles(
       wasm: whether to build wasm libraries
       jvm: whether to build a jvm library
     """
-    if not jvm and not wasm:
-        fail("At least one of wasm or jvm must be built.")
+    if not jvm and not wasm and not testing:
+        fail("At least one of wasm or jvm or testing must be built.")
 
     deps = ARCS_SDK_DEPS + deps
 
@@ -155,6 +165,14 @@ def arcs_kt_particles(
         # Create a jvm library just as a build test.
         arcs_kt_jvm_library(
             name = name + "-jvm",
+            srcs = srcs,
+            deps = deps,
+            visibility = visibility,
+        )
+    
+    if testing:
+        arcs_kt_jvm_library(
+            name = name + "-testing",
             srcs = srcs,
             deps = deps,
             visibility = visibility,

@@ -10,6 +10,22 @@
  */
 
 package arcs.sdk
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.*
 
 /** Implementation of [Particle] for the JVM. */
-abstract class BaseParticle : Particle
+abstract class BaseParticle : Particle {
+    val coroutineContext = Dispatchers.IO + CoroutineName("Particle")
+    val particleScope = CoroutineScope(coroutineContext)
+
+    init {
+        particleScope.launch {}
+    }
+
+    // Same for tuples with more args
+    fun <A, B> reactTo(a: Flow<A>, b: Flow<B>, action: suspend (A, B) -> Unit) {
+        a.combine(b) {i1, i2 -> i1 to i2}
+                .onEach {(a, b) -> action(a, b)}
+                .launchIn(particleScope)
+    }
+}

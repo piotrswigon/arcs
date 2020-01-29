@@ -11,6 +11,8 @@
 
 package arcs.sdk
 
+import kotlinx.coroutines.flow.*
+
 /** Base interface for all handle classes. */
 interface Handle {
     val name: String
@@ -20,6 +22,8 @@ interface Handle {
 interface ReadableSingleton<T : Entity> : Handle {
     /** Returns the value of the singleton. */
     fun get(): T?
+
+    val updates: Flow<T?>
 }
 
 /** A singleton handle with write access. */
@@ -27,6 +31,7 @@ interface WritableSingleton<T : Entity> : Handle {
     /** Sets the value of the singleton. */
     fun set(entity: T)
 
+    // Why not just set(null) ?
     /** Clears the value of the singleton. */
     fun clear()
 }

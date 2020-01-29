@@ -23,7 +23,8 @@ def _run_schema2wasm(
         language_name,
         language_flag,
         package,
-        wasm):
+        wasm,
+        testing):
     """Generates source code for the given .arcs schema file.
 
     Runs sigh schema2wasm to generate the output.
@@ -47,6 +48,7 @@ def _run_schema2wasm(
         sigh_cmd = "schema2wasm " +
                    language_flag + " " +
                    ("--wasm " if wasm else "") +
+                   ("--testing " if testing else "") +
                    "--outdir $(dirname {OUT}) " +
                    "--outfile $(basename {OUT}) " +
                    "--package " + package + " " +
@@ -78,8 +80,9 @@ def arcs_kt_schema(name, srcs, deps = [], package = "arcs.sdk"):
     """
     outs = []
     for src in srcs:
-        for wasm in [True, False]:
-            ext = "wasm" if wasm else "jvm"
+        for ext in ["wasm", "jvm", "testing"]:
+#        for wasm in [True, False]:
+#            ext = "wasm" if wasm else "jvm"
             genrule_name = _output_name(src, "_genrule_" + ext)
             out = _output_name(src, "_GeneratedSchemas.%s.kt" % ext)
             outs.append(out)
@@ -88,7 +91,8 @@ def arcs_kt_schema(name, srcs, deps = [], package = "arcs.sdk"):
                 src = src,
                 out = out,
                 deps = deps,
-                wasm = wasm,
+                wasm = ext == "wasm",
+                testing = ext == "testing",
                 language_flag = "--kotlin",
                 language_name = "Kotlin",
                 package = package,

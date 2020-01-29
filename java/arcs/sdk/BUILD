@@ -14,6 +14,9 @@ arcs_kt_jvm_library(
         "*.kt",
         "jvm/*.kt",
     ]),
+    deps = [
+        "//third_party/kotlin/kotlinx_coroutines",
+    ]
 )
 
 arcs_kt_native_library(

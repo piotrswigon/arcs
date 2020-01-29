@@ -1,0 +1,7 @@
+schema Val
+  value: Number
+
+particle Sample in 'Sample.kt'
+  input1: reads Val {value}
+  input2: reads Val {value}
+  output: writes Val {value}
