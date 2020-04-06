@@ -15,6 +15,7 @@ import arcs.core.data.RawEntity
 import arcs.core.storage.StorageProxy
 import arcs.core.storage.StoreOptions
 import arcs.core.storage.referencemode.ReferenceModeStorageKey
+import arcs.core.util.TaggedLog
 
 typealias CollectionData<T> = CrdtSet.Data<T>
 typealias CollectionOp<T> = CrdtSet.IOperation<T>
@@ -81,6 +82,25 @@ class CollectionHandle<T : Entity>(
                 name,
                 storageProxy.getVersionMap().increment(name),
                 entityPreparer.prepareEntity(entity)
+            )
+        )
+    }
+
+    private val log = TaggedLog { "StorageProxy" }
+
+    override suspend fun storeAll(entities: Iterable<T>) = checkPreconditions<Unit> {
+        val oldClock = storageProxy.getVersionMap().copy()
+        val newClock = storageProxy.getVersionMap().increment(name)
+
+        log.debug { "Yay" }
+
+        storageProxy.applyOp(
+            CrdtSet.Operation.FastForward(
+                oldClock,
+                newClock,
+                entities.map {
+                    CrdtSet.DataValue(newClock, entityPreparer.prepareEntity(it))
+                }.toMutableList()
             )
         )
     }

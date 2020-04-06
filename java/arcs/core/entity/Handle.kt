@@ -101,6 +101,8 @@ interface WriteCollectionHandle<T : Entity> : Handle {
     /** Adds the given [entity] to the collection. */
     suspend fun store(entity: T)
 
+    suspend fun storeAll(entities: Iterable<T>)
+
     /** Removes everything from the collection. */
     suspend fun clear()
 

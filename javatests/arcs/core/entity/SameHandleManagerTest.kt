@@ -4,9 +4,11 @@ import arcs.core.host.EntityHandleManager
 import arcs.core.storage.StoreManager
 import arcs.core.util.testutil.LogRule
 import arcs.jvm.util.testutil.TimeImpl
+import com.google.common.truth.Truth
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
+import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 
@@ -26,6 +28,17 @@ class SameHandleManagerTest : HandleManagerTestBase() {
             stores = StoreManager()
         )
         writeHandleManager = readHandleManager
+    }
+
+    @Test
+    fun collection_writeAllAndReadBack() = testRunner {
+        val writeHandle = writeHandleManager.createCollectionHandle()
+        writeHandle.storeAll(setOf(entity1, entity2))
+
+        // Now read back from a different handle
+        val readHandle = readHandleManager.createCollectionHandle()
+        val readBack = readHandle.fetchAll()
+        Truth.assertThat(readBack).containsExactly(entity1, entity2)
     }
 
     @After

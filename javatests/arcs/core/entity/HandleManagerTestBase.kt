@@ -32,8 +32,8 @@ import java.lang.ClassCastException
 
 @Suppress("EXPERIMENTAL_API_USAGE", "UNCHECKED_CAST")
 open class HandleManagerTestBase {
-    private val backingKey = RamDiskStorageKey("entities")
-    private val hatsBackingKey = RamDiskStorageKey("hats")
+    val backingKey = RamDiskStorageKey("entities")
+    val hatsBackingKey = RamDiskStorageKey("hats")
 
     data class Person(
         override val entityId: ReferenceId,
@@ -112,7 +112,7 @@ open class HandleManagerTestBase {
         }
     }
 
-    private val entity1 = Person(
+    val entity1 = Person(
         entityId = "entity1",
         name = "Jason",
         age = 21,
@@ -120,7 +120,7 @@ open class HandleManagerTestBase {
         bestFriend = Reference("entity2", backingKey, null),
         hat = null
     )
-    private val entity2 = Person(
+    val entity2 = Person(
         entityId = "entity2",
         name = "Jason",
         age = 22,
@@ -724,7 +724,7 @@ open class HandleManagerTestBase {
         ttl
     ) as ReadWriteSingletonHandle<Person>
 
-    private suspend fun EntityHandleManager.createCollectionHandle(
+    suspend fun EntityHandleManager.createCollectionHandle(
         storageKey: StorageKey = collectionKey,
         name: String = "collectionRefReadHandle",
         ttl: Ttl = Ttl.Infinite
