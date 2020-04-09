@@ -1,0 +1,23 @@
+// Big example for recipe2plan generation: Part (1/3)
+// -- Long running arc ingesting raw events --
+
+meta
+  namespace: arcs.core.data.testdata.ingestion
+
+schema Event
+    type: Text
+    timestamp: Number
+    value: Text
+
+particle Ingestion
+  events: writes [Event {type, timestamp, value}]
+
+// Example: Long running arc ingesting events into a collection.
+@trigger
+  launch startup
+  arcId eventIngestion
+recipe EventsIngestion
+  // Example: Handle created with id, capabilities and TTL.
+  events: create persistent 'raw-events' @ttl(1d)
+  Ingestion
+    events: events
