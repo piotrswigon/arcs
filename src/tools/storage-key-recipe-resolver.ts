@@ -84,6 +84,7 @@ export class StorageKeyRecipeResolver {
    */
   async tryResolve(recipe: Recipe, opts: IsValidOptions): Promise<Recipe | null> {
 
+    //recipe.handles.forEach(h => h.type.maybeEnsureResolved());
     if (recipe.isResolved()) return recipe;
 
     const arcId = findLongRunningArcId(recipe);

@@ -38,18 +38,26 @@ export class ResolveWalker extends RecipeWalker {
       }
       return [];
     };
-    if (handle.fate === '`slot') {
+    if (handle.fate === '`slot' || handle.fate === 'join') {
       return [];
     }
     if (handle.type.slandleType()) {
       return [];
     }
     const arc = this.arc;
-    if (handle.connections.length === 0 ||
+    //handle.type.maybeEnsureResolved();
+
+    if ((handle.connections.length === 0 && !handle.isJoined) ||
         (handle.id && handle.storageKey) || (!handle.type) ||
         (!handle.fate)) {
       return error('No connections to handle or missing handle information');
     }
+
+    // if ((handle.connections.length === 0 && !handle.isJoined) ||
+    //     (!handle.id && !handle.storageKey) || (!handle.type) ||
+    //     (!handle.fate)) {
+    //   return error(`No connections to handle or missing handle information: ${handle.toString()}   A ${(handle.connections.length === 0 && !handle.isJoined)} B ${(!!handle.id && !!handle.storageKey)} C ${(!handle.type)} D ${!handle.fate}`);
+    // }
 
     let mappable;
     if (!handle.id) {
