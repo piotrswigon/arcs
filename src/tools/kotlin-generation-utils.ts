@@ -33,32 +33,39 @@ export class KotlinGenerationUtils {
    *
    * @param name name of the function
    * @param args list of arguments to the function
-   * @param startIndent (optional) starting indentation level.
-   * @param emptyName alternative name for the function with empty arguments.
+   * @param opts additional options for formatting startIndent (optional) 
+   * @param emptyName 
    */
-  applyFun(name: string, args: string[], startIndent: number = 0, emptyName: string = name): string {
-    if (args.length === 0) return `${emptyName}()`;
-    return `${name}(${this.joinWithIndents(args, startIndent + name.length + 2)})`;
+  applyFun(name: string, args: string[], opts: {
+      // Starting indentation level.
+      startIndent?: number,
+      // Alternative name for the function with empty arguments.
+      emptyName?: string,
+      // Number of existing indents where the resulting code will be inserted.
+      numberOfIndents?: number
+    } = {}): string {
+    if (args.length === 0) return `${opts.emptyName || name}()`;
+    return `${name}(${this.joinWithIndents(args, (opts.startIndent || 0) + name.length + 2, (opts.numberOfIndents || 1))})`;
   }
 
   /** Formats `mapOf` with correct indentation and defaults. */
   mapOf(args: string[], startIndent: number = 0): string {
-    return this.applyFun('mapOf', args, startIndent, 'emptyMap');
+    return this.applyFun('mapOf', args, {startIndent, emptyName: 'emptyMap'});
   }
 
   /** Formats `mutableMapOf` with correct indentation and defaults. */
   mutableMapOf(args: string[], startIndent: number = 0): string {
-    return this.applyFun('mutableMapOf', args, startIndent, 'mutableMapOf');
+    return this.applyFun('mutableMapOf', args, {startIndent, emptyName: 'mutableMapOf'});
   }
 
   /** Formats `listOf` with correct indentation and defaults. */
   listOf(args: string[], startIndent: number = 0): string {
-    return this.applyFun('listOf', args, startIndent, 'emptyList');
+    return this.applyFun('listOf', args, {startIndent, emptyName: 'emptyList'});
   }
 
   /** Formats `setOf` with correct indentation and defaults. */
   setOf(args: string[], startIndent: number = 0): string {
-    return this.applyFun('setOf', args, startIndent, 'emptySet');
+    return this.applyFun('setOf', args, {startIndent, emptyName: 'emptySet'});
   }
 
   /**
