@@ -13,6 +13,7 @@ import {HandleConnectionSpec, ParticleSpec} from '../runtime/particle-spec.js';
 import {upperFirst} from './kotlin-generation-utils.js';
 import {AtLeastAsSpecific} from '../runtime/refiner.js';
 import {flatMap} from '../runtime/util.js';
+import {registerSystemExceptionHandler} from '../runtime/arc-exceptions.js';
 
 // Describes a source from where the Schema has been collected.
 export class SchemaSource {
@@ -56,6 +57,8 @@ export class SchemaNode {
 
   readonly sources: SchemaSource[] = [];
 
+  hash: string | undefined;
+
   // All schemas that can be sliced to this one.
   descendants = new Set<SchemaNode>();
 
@@ -67,6 +70,11 @@ export class SchemaNode {
   // Maps reference fields to the node for their contained schema. This is also used to
   // ensure that nested schemas are generated before the references that rely on them.
   refs = new Map<string, SchemaNode>();
+
+  async calculateHash(): Promise<void> {
+    this.hash = await this.schema.hash();
+    await Promise.all([...this.refs.values()].map(n => n.calculateHash));
+  }
 
   get uniqueSchema() {
     return !this.allSchemaNodes.some(s => s.schema !== this.schema && s.schema.name === this.schema.name);

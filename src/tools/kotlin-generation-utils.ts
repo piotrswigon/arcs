@@ -88,8 +88,17 @@ export class KotlinGenerationUtils {
   }
 
   /** Indent a codeblock with the preferred indentation. */
-  indent(block: string, numberOfIndents: number = 1): string  {
-    return leftPad(block, this.pref.indent * numberOfIndents);
+  indent(block: string, numberOfIndents: number = 1, skipFirst: boolean = false): string  {
+    return leftPad(block, this.pref.indent * numberOfIndents, skipFirst);
+  }
+
+  /**
+   * Joins a list of lines, indenting all but the first one.
+   */
+  indentFollowing(lines: string[], numberOfIndents: number) {
+    return lines
+      .map((line, idx) => idx > 0 ? ' '.repeat(this.pref.indent * numberOfIndents) + line : line)
+      .join('\n');
   }
 }
 
