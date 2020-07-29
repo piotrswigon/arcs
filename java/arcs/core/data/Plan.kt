@@ -11,7 +11,6 @@
 package arcs.core.data
 
 import arcs.core.data.Capability.Ttl
-import arcs.core.data.expression.Expression
 import arcs.core.storage.StorageKey
 import arcs.core.type.Type
 import arcs.core.util.lens
