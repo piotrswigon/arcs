@@ -130,6 +130,77 @@ Particle(
     );
   });
 
+  it.only('checking if invalid recipe can be produced', async () => {
+    const schemaString = `
+schema X
+  a: Text
+  b: Text
+  c: Text
+schema Y
+  y: Text
+    `;
+    const policiesManifest = `
+${schemaString}
+policy Policy0 {
+  @allowedRetention(medium: 'Ram', encryption: false)
+  @maxAge('10d')
+  from X access { a, b}
+}
+policy Policy1 {
+  @allowedRetention(medium: 'Ram', encryption: false)
+  @maxAge('10d')
+  from Y access { y }
+}
+    `;
+    const {generator, recipes} = await process(`
+${schemaString}
+particle Writer
+  x: writes [X {a, b, c}]
+particle ReadWrite
+  x: reads [X {a, c}]
+  y: writes [Y {y}]
+recipe DoStuff
+  x: create 'my-x' @ttl('3d')
+  y: create 'my-y' @ttl('3d')
+  Writer
+    x: x
+  ReadWrite
+    x: x
+    y: y
+    
+    `, policiesManifest);
+    const handle = recipes[0].handles.find(h => h.id === 'my-x');
+    const handleObject = await generator.createHandleVariable(handle);
+    // ***
+    // Type sytem would allow the type of the handle to be between:
+    //   X {a, b, c} and X {a, c}, i.e. between the written and read type.
+    // On its own, we would pick the smaller type, i.e. X {a, c}.
+    // The ingress redacting however removes the 'c' field from the type
+    // as it's not allowed by the policies and we end of with X {a} only,
+    // and therefore generate a recipe that's invalid according to the
+    // type system.
+    // ***
+    assert.equal(handleObject, `\
+val DoStuff_Handle0 = Handle(
+    StorageKeyParser.parse("create://my-x"),
+    arcs.core.data.CollectionType(
+        arcs.core.data.EntityType(
+            arcs.core.data.Schema(
+                setOf(arcs.core.data.SchemaName("X")),
+                arcs.core.data.SchemaFields(
+                    singletons = mapOf("a" to arcs.core.data.FieldType.Text),
+                    collections = emptyMap()
+                ),
+                "eb8597be8b72862d5580f567ab563cefe192508d",
+                refinementExpression = true.asExpr(),
+                queryExpression = true.asExpr()
+            )
+        )
+    ),
+    listOf(Annotation("ttl", mapOf("value" to AnnotationParam.Str("3d"))))
+)`);
+  });
+
   async function process(manifestString: string, policiesManifestString?: string): Promise<{
     recipes: Recipe[],
     generator: PlanGenerator,
